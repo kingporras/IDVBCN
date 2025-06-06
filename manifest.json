@@ -1,0 +1,16 @@
+
+{
+  "name": "Inter de Verdun App",
+  "short_name": "InterVerdun",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f4fafd",
+  "theme_color": "#0288d1",
+  "icons": [
+    {
+      "src": "escudo.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ]
+}

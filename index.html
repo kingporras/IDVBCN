@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Inter de Verdun App</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="escudo.png"/>
+</head>
+<body>
+  <header>
+    <h1>Inter de Verdun</h1>
+    <p>Fuerza y honor</p>
+  </header>
+
+  <section id="formacion">
+    <h2>Formación táctica</h2>
+    <div id="campo">
+      <div class="jugador" contenteditable="true">99 Mordí</div>
+      <div class="jugador" contenteditable="true">2 Pomares</div>
+      <div class="jugador" contenteditable="true">7 Suvillika</div>
+      <div class="jugador" contenteditable="true">10 Dani</div>
+      <div class="jugador" contenteditable="true">15 Xavi</div>
+      <div class="jugador" contenteditable="true">4 El Porras</div>
+    </div>
+  </section>
+
+  <section id="convocatorias">
+    <h2>Convocatoria</h2>
+    <textarea id="convocatoriaInput" placeholder="Escribe la convocatoria aquí..."></textarea>
+    <button onclick="guardarConvocatoria()">Guardar</button>
+  </section>
+
+  <section id="mvp">
+    <h2>Vota al MVP</h2>
+    <input type="text" id="nombreMVP" placeholder="Jugador MVP"/>
+    <button onclick="votarMVP()">Votar</button>
+    <p id="mvpResultado"></p>
+  </section>
+
+  <section id="frases">
+    <h2>Frase del día</h2>
+    <blockquote id="fraseMotivadora">"La fuerza no proviene de la victoria, sino del esfuerzo constante."</blockquote>
+  </section>
+
+  <script src="script.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js');
+    }
+  </script>
+
+  <section id="estadisticas">
+    <h2>Estadísticas por Jugador</h2>
+    <table>
+      <thead>
+        <tr><th>Jugador</th><th>Goles</th><th>Asistencias</th><th>MVPs</th><th>Partidos</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>El Porras</td><td>12</td><td>3</td><td>4</td><td>8</td></tr>
+        <tr><td>Pomares</td><td>2</td><td>1</td><td>1</td><td>8</td></tr>
+        <tr><td>Mordí</td><td>0</td><td>0</td><td>1</td><td>7</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <section id="asistencia">
+    <h2>Confirmar Asistencia</h2>
+    <form id="formAsistencia" onsubmit="registrarAsistencia(event)">
+      <input type="text" id="nombreAsistente" placeholder="Tu nombre" required />
+      <select id="respuestaAsistencia">
+        <option value="sí">Sí voy</option>
+        <option value="no">No voy</option>
+        <option value="tarde">Llego tarde</option>
+      </select>
+      <button type="submit">Confirmar</button>
+    </form>
+    <ul id="listaAsistencia"></ul>
+  </section>
+
+</body>
+</html>
