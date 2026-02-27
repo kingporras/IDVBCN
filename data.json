@@ -1,0 +1,402 @@
+{
+  "players": [
+    {
+      "id": "p1",
+      "name": "plans",
+      "position": "DEF",
+      "dorsal": 1,
+      "stats": {
+        "goles": 0,
+        "asistencias": 0,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "plans",
+      "pin": "1",
+      "role": "player"
+    },
+    {
+      "id": "p2",
+      "name": "pomares",
+      "position": "DEF",
+      "dorsal": 2,
+      "stats": {
+        "goles": 1,
+        "asistencias": 1,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "pomares",
+      "pin": "2",
+      "role": "player"
+    },
+    {
+      "id": "p3",
+      "name": "porras",
+      "position": "DEL",
+      "dorsal": 4,
+      "stats": {
+        "goles": 8,
+        "asistencias": 2,
+        "amarillas": 2,
+        "rojas": 0,
+        "mvps": 3
+      },
+      "username": "porras",
+      "pin": "4",
+      "role": "admin"
+    },
+    {
+      "id": "p4",
+      "name": "cuco",
+      "position": "DEF",
+      "dorsal": 5,
+      "stats": {
+        "goles": 0,
+        "asistencias": 1,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "cuco",
+      "pin": "5",
+      "role": "player"
+    },
+    {
+      "id": "p5",
+      "name": "altimira",
+      "position": "MED",
+      "dorsal": 7,
+      "stats": {
+        "goles": 2,
+        "asistencias": 3,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 1
+      },
+      "username": "altimira",
+      "pin": "7",
+      "role": "player"
+    },
+    {
+      "id": "p6",
+      "name": "alex",
+      "position": "DEL",
+      "dorsal": 9,
+      "stats": {
+        "goles": 5,
+        "asistencias": 1,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 2
+      },
+      "username": "alex",
+      "pin": "9",
+      "role": "player"
+    },
+    {
+      "id": "p7",
+      "name": "dani",
+      "position": "MED",
+      "dorsal": 10,
+      "stats": {
+        "goles": 4,
+        "asistencias": 2,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 1
+      },
+      "username": "dani",
+      "pin": "10",
+      "role": "player"
+    },
+    {
+      "id": "p8",
+      "name": "delrio",
+      "position": "DEL",
+      "dorsal": 11,
+      "stats": {
+        "goles": 3,
+        "asistencias": 1,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 1
+      },
+      "username": "delrio",
+      "pin": "11",
+      "role": "player"
+    },
+    {
+      "id": "p9",
+      "name": "peke",
+      "position": "MED",
+      "dorsal": 17,
+      "stats": {
+        "goles": 1,
+        "asistencias": 2,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "peke",
+      "pin": "17",
+      "role": "player"
+    },
+    {
+      "id": "p10",
+      "name": "sergio",
+      "position": "DEF",
+      "dorsal": 19,
+      "stats": {
+        "goles": 1,
+        "asistencias": 1,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "sergio",
+      "pin": "19",
+      "role": "player"
+    },
+    {
+      "id": "p11",
+      "name": "rony",
+      "position": "DEL",
+      "dorsal": 23,
+      "stats": {
+        "goles": 2,
+        "asistencias": 1,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "rony",
+      "pin": "23",
+      "role": "player"
+    },
+    {
+      "id": "p12",
+      "name": "malle",
+      "position": "POR",
+      "dorsal": 30,
+      "stats": {
+        "goles": 0,
+        "asistencias": 0,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 1
+      },
+      "username": "malle",
+      "pin": "30",
+      "role": "player"
+    },
+    {
+      "id": "p13",
+      "name": "edgar",
+      "position": "DEF",
+      "dorsal": 44,
+      "stats": {
+        "goles": 0,
+        "asistencias": 1,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "edgar",
+      "pin": "44",
+      "role": "player"
+    },
+    {
+      "id": "p14",
+      "name": "joeliko",
+      "position": "MED",
+      "dorsal": 69,
+      "stats": {
+        "goles": 1,
+        "asistencias": 1,
+        "amarillas": 1,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "joeliko",
+      "pin": "69",
+      "role": "player"
+    },
+    {
+      "id": "p15",
+      "name": "mordillo",
+      "position": "POR",
+      "dorsal": 99,
+      "stats": {
+        "goles": 0,
+        "asistencias": 0,
+        "amarillas": 0,
+        "rojas": 0,
+        "mvps": 0
+      },
+      "username": "mordillo",
+      "pin": "99",
+      "role": "player"
+    }
+  ],
+  "matches": [
+    {
+      "id": "m1",
+      "date": "2026-02-19T22:05:00",
+      "rival": "ONSE FC",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m2",
+      "date": "2026-02-26T20:15:00",
+      "rival": "Nacional",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m3",
+      "date": "2026-03-05T22:05:00",
+      "rival": "Sparta",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m4",
+      "date": "2026-03-12T21:10:00",
+      "rival": "Hulk City",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m5",
+      "date": "2026-03-19T23:00:00",
+      "rival": "Changos Camperos",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m6",
+      "date": "2026-03-26T21:10:00",
+      "rival": "Paella",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m7",
+      "date": "2026-04-09T20:15:00",
+      "rival": "MINGORRUBIO BALOMPIÉ",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m8",
+      "date": "2026-04-16T22:05:00",
+      "rival": "SMASH BROTHERS",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m9",
+      "date": "2026-04-30T21:10:00",
+      "rival": "ONSE FC",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m10",
+      "date": "2026-05-07T22:05:00",
+      "rival": "Nacional",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m11",
+      "date": "2026-05-14T21:10:00",
+      "rival": "Sparta",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m12",
+      "date": "2026-05-21T20:15:00",
+      "rival": "Hulk City",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m13",
+      "date": "2026-05-28T23:00:00",
+      "rival": "Changos Camperos",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m14",
+      "date": "2026-06-04T20:15:00",
+      "rival": "Paella",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m15",
+      "date": "2026-06-11T20:15:00",
+      "rival": "MINGORRUBIO BALOMPIÉ",
+      "home": false,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    },
+    {
+      "id": "m16",
+      "date": "2026-06-18T21:10:00",
+      "rival": "SMASH BROTHERS",
+      "home": true,
+      "venue": "Velòdrom F7",
+      "result": "-"
+    }
+  ],
+  "votesByMatch": {
+    "m1": {
+      "p3": 2,
+      "p6": 1
+    },
+    "m2": {
+      "p7": 1,
+      "p5": 1
+    }
+  },
+  "attendanceByMatch": {
+    "m3": {
+      "p3": "confirmado",
+      "p6": "confirmado",
+      "p7": "pendiente",
+      "p15": "confirmado",
+      "p2": "pendiente"
+    }
+  },
+  "lineup": [
+    "mordillo",
+    "pomares",
+    "cuco",
+    "altimira",
+    "dani",
+    "alex",
+    "porras"
+  ]
+}
