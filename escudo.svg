@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <style>
+      .gold{fill:#e8cc95;stroke:#9c7d2f;stroke-width:6}
+      .blue{fill:#8ec1e6;stroke:#9c7d2f;stroke-width:6}
+      .txt{font-family:Georgia,serif;font-weight:700;letter-spacing:2px;fill:#e8cc95;stroke:#9c7d2f;stroke-width:2}
+    </style>
+    <path id="topArc" d="M180,515 A332,332 0 0 1 844,515"/>
+  </defs>
+  <rect width="1024" height="1024" fill="#ececec"/>
+  <circle cx="512" cy="512" r="420" class="gold"/>
+  <circle cx="512" cy="512" r="388" class="blue"/>
+  <circle cx="512" cy="512" r="286" class="gold"/>
+  <circle cx="512" cy="512" r="268" fill="#f6f6f6" stroke="#9c7d2f" stroke-width="4"/>
+  <path d="M240 700 L360 820 L744 436 L624 316 Z" class="gold"/>
+  <polygon points="268,713 281,745 316,748 289,768 298,800 268,782 238,800 247,768 220,748 255,745" fill="#8ec1e6" stroke="#9c7d2f" stroke-width="5"/>
+  <path d="M432 470 C470 390 575 370 653 417 C704 449 726 523 699 584 C661 671 546 701 472 649 C408 603 393 538 432 470 Z" fill="#e8cc95" stroke="#9c7d2f" stroke-width="8"/>
+  <path d="M567 522 L760 604 L700 634 L549 563 Z" fill="#e8cc95" stroke="#9c7d2f" stroke-width="8"/>
+  <path d="M790 448 C770 470 770 550 790 575" fill="none" stroke="#9c7d2f" stroke-width="8"/>
+  <path d="M824 452 C804 478 805 546 824 572" fill="none" stroke="#9c7d2f" stroke-width="8"/>
+  <text font-size="86" class="txt">
+    <textPath href="#topArc" startOffset="7%">INTER DE VERDUN</textPath>
+  </text>
+  <text x="512" y="830" text-anchor="middle" class="txt" font-size="72">Since 2023</text>
+</svg>
