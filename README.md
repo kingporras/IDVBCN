@@ -16,6 +16,6 @@ Abrir: `http://localhost:4173`
 5. Guardar y esperar el despliegue.
 
 ## Datos
-- `data.json` contiene jugadores, partidos, asistencia inicial y votos base.
-- La app intenta cargar `data.json` vía `fetch`; si falla, usa fallback embebido en `script.js`.
-- Ediciones y acciones del usuario se guardan en `localStorage`.
+- La app carga jugadores, partidos, asistencia y votos MVP directamente desde Supabase.
+- El flujo de MVP persiste únicamente en `public.mvp_votes` mediante `upsert`.
+- Se mantiene `localStorage` solo para utilidades de panel admin (mock email y overrides locales), no para MVP.
