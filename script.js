@@ -76,21 +76,35 @@ function mapMatchRow(row) {
 }
 
 async function loadData() {
-  state.data = JSON.parse(JSON.stringify(FALLBACK_DATA));
+  const fallbackData = JSON.parse(JSON.stringify(FALLBACK_DATA));
 
-  if (!supabaseClient) return;
+  if (supabaseClient) {
+    try {
+      const [playersRes, matchesRes] = await Promise.all([
+        supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
+        supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
+      ]);
 
-  const [playersRes, matchesRes] = await Promise.all([
-    supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
-    supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
-  ]);
-
-  if (!playersRes.error && Array.isArray(playersRes.data)) {
-    state.data.players = playersRes.data.map(mapPlayerRow);
+      if (!playersRes.error && !matchesRes.error && Array.isArray(playersRes.data) && Array.isArray(matchesRes.data)) {
+        state.data = {
+          ...fallbackData,
+          players: playersRes.data.map(mapPlayerRow),
+          matches: matchesRes.data.map(mapMatchRow)
+        };
+        return;
+      }
+    } catch {
+      // Fallbacks handled below.
+    }
   }
 
-  if (!matchesRes.error && Array.isArray(matchesRes.data)) {
-    state.data.matches = matchesRes.data.map(mapMatchRow);
+  try {
+    const res = await fetch('data.json');
+    if (!res.ok) throw new Error('no data');
+    state.data = await res.json();
+    return;
+  } catch {
+    state.data = fallbackData;
   }
 }
 
