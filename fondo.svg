@@ -10,5 +10,5 @@
   </defs>
   <rect width="1536" height="2048" fill="url(#diag)"/>
   <rect width="1536" height="2048" fill="url(#word)"/>
-  <image href="escudo.svg" x="588" y="90" width="360" height="360" opacity="0.9"/>
+  <image href="escudo.png" x="588" y="90" width="360" height="360" opacity="0.9"/>
 </svg>
