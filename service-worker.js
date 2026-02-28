@@ -1,7 +1,7 @@
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open('inter-app-cache').then(cache => {
+    caches.open('inter-app-cache-v2').then(cache => {
       return cache.addAll([
         './',
         'index.html',
@@ -9,7 +9,7 @@ self.addEventListener('install', event => {
         'script.js',
         'data.json',
         'manifest.json',
-        'escudo.svg',
+        'escudo.png',
         'fondo.svg'
       ]);
     })
