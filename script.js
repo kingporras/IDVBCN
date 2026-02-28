@@ -35,7 +35,6 @@ const FALLBACK_DATA = {
     { id: 'm16', date: '2026-06-18T21:10:00', rival: 'SMASH BROTHERS', home: true, venue: 'Velòdrom F7', result: '-' }
   ],
   votesByMatch: {},
-  attendanceByMatch: { m1: { p3: 'confirmado', p6: 'confirmado', p7: 'pendiente', p15: 'confirmado', p2: 'pendiente' } },
   lineup: ['mordillo', 'pomares', 'cuco', 'altimira', 'dani', 'alex', 'porras']
 };
 
@@ -85,24 +84,19 @@ function mapMatchRow(row) {
   };
 }
 
-function normalizeName(value) {
-  return String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
-}
 
 function normalizeAttendanceStatus(status) {
   const value = String(status || '').toLowerCase();
-  if (value === 'yes' || value === 'confirmado') return 'confirmado';
+  if (value === 'yes') return 'yes';
+  if (value === 'maybe') return 'maybe';
   if (value === 'no') return 'no';
-  return 'pendiente';
+  if (value === 'pending') return 'pending';
+  return 'pending';
 }
 
 function getConvocatoriaStatusForPlayer(playerId) {
   const userId = state.convocatoria.profileIdByPlayerId[playerId];
-  if (!userId) return 'pendiente';
+  if (!userId) return 'pending';
   return normalizeAttendanceStatus(state.convocatoria.attendanceByUserId[userId]);
 }
 
@@ -113,25 +107,17 @@ async function loadConvocatoriaData(matchId) {
 
   if (!supabaseClient || !matchId) return;
 
-  const players = getPlayers();
   const { data: profiles, error: profilesError } = await supabaseClient
     .from('profiles')
-    .select('id, display_name, role');
+    .select('id, display_name, role, player_id');
 
   if (profilesError) {
     console.error('[attendance] profiles load error', profilesError);
     showToast('Error cargando perfiles: ' + (profilesError.message || profilesError.code), 'error');
   } else if (Array.isArray(profiles)) {
-    const profileIdByName = {};
     profiles.forEach((profile) => {
-      const key = normalizeName(profile.display_name);
-      if (key && !profileIdByName[key]) profileIdByName[key] = profile.id;
-    });
-
-    players.forEach((player) => {
-      const matchedId = profileIdByName[normalizeName(player.name)];
-      if (matchedId) {
-        state.convocatoria.profileIdByPlayerId[player.id] = matchedId;
+      if (profile.player_id) {
+        state.convocatoria.profileIdByPlayerId[String(profile.player_id)] = profile.id;
       }
     });
   }
@@ -165,9 +151,10 @@ async function saveAttendance(matchId, userId, status) {
     return false;
   }
 
+  const normalizedStatus = normalizeAttendanceStatus(status);
   const { data, error } = await supabaseClient
     .from('attendance')
-    .upsert({ match_id: matchId, user_id: userId, status }, { onConflict: 'match_id,user_id' })
+    .upsert({ match_id: matchId, user_id: userId, status: normalizedStatus }, { onConflict: 'match_id,user_id' })
     .select();
 
   if (error) {
@@ -253,7 +240,10 @@ function formatDate(iso) {
 }
 
 function statusLabel(status) {
-  return status === 'confirmado' ? '✅ Confirmado' : status === 'no' ? '❌ No disponible' : '⏳ Pendiente';
+  if (status === 'yes') return '✅ Confirmado';
+  if (status === 'no') return '❌ Baja';
+  if (status === 'maybe') return '⏳ Dudoso';
+  return '⏳ Pendiente';
 }
 
 function parseResult(result) {
@@ -358,19 +348,20 @@ function renderConvocatoria() {
     const userId = state.convocatoria.profileIdByPlayerId[p.id];
     const st = getConvocatoriaStatusForPlayer(p.id);
 
-    if (st === 'confirmado') confirmados += 1;
+    if (st === 'yes') confirmados += 1;
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const editable = Boolean(userId) && (isAdmin || userId === authUid);
-    const showActions = isAdmin || userId === authUid || !userId;
+    const isOwnPlayer = p.id === state.sessionUser.playerId;
+    const editable = isAdmin ? Boolean(userId) : (isOwnPlayer && userId === authUid);
+    const showActions = isAdmin || isOwnPlayer;
     const disabledAttr = editable ? '' : 'disabled';
 
     return `<li>
       <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
       <div class="att-actions ${showActions ? '' : 'hidden'}">
         <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="pending" ${disabledAttr}>⏳</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>⏳</button>
         <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
       </div>
     </li>`;
@@ -388,6 +379,7 @@ function renderConvocatoria() {
         '[debug/convocatoria]',
         `matchId: ${state.selectedMatchId || '-'}`,
         `authUid: ${authUid || '-'}`,
+        `playerId: ${state.sessionUser.playerId || '-'}`,
         `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
       ].join('\n');
     } else {
@@ -502,7 +494,7 @@ function generateConvImage(matchId) {
   const match = getMatches().find((m) => m.id === matchId);
   if (!match) return;
   const players = getPlayers();
-  const confirmed = players.filter((p) => getConvocatoriaStatusForPlayer(p.id) === 'confirmado');
+  const confirmed = players.filter((p) => getConvocatoriaStatusForPlayer(p.id) === 'yes');
 
   const canvas = document.createElement('canvas');
   canvas.width = 1080;
@@ -563,7 +555,7 @@ async function ensureProfile(user) {
 
   const { data: existing, error: selectError } = await supabaseClient
     .from('profiles')
-    .select('id, display_name, role')
+    .select('id, display_name, role, player_id')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -574,11 +566,11 @@ async function ensureProfile(user) {
   if (existing) return existing;
 
   const displayName = (user.email || 'jugador').split('@')[0];
-  const profilePayload = { id: user.id, display_name: displayName, role: 'player' };
+  const profilePayload = { id: user.id, display_name: displayName, role: 'player', player_id: null };
   const { data: inserted, error: insertError } = await supabaseClient
     .from('profiles')
     .insert(profilePayload)
-    .select('id, display_name, role')
+    .select('id, display_name, role, player_id')
     .single();
 
   if (insertError) {
@@ -637,7 +629,8 @@ async function syncSession() {
     email: user.email,
     displayName: profile?.display_name || (user.email || 'jugador').split('@')[0],
     role: profile?.role || 'player',
-    profileId: profile?.id || user.id
+    profileId: profile?.id || user.id,
+    playerId: profile?.player_id ? String(profile.player_id) : null
   });
 }
 
@@ -709,9 +702,9 @@ function bindEvents() {
       }
 
       if (!userId) {
-        const error = { message: 'Jugador sin perfil vinculado', code: 'NO_PROFILE' };
+        const error = { message: 'Ese jugador aún no tiene cuenta vinculada', code: 'NO_PROFILE' };
         console.error('[attendance] error', error);
-        showToast('Error guardando asistencia: ' + error.message, 'error');
+        showToast(error.message, 'error');
         return;
       }
 
@@ -825,7 +818,8 @@ async function init() {
       email: session.user.email,
       displayName: profile?.display_name || (session.user.email || 'jugador').split('@')[0],
       role: profile?.role || 'player',
-      profileId: profile?.id || session.user.id
+      profileId: profile?.id || session.user.id,
+      playerId: profile?.player_id ? String(profile.player_id) : null
     });
   });
 
