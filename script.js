@@ -34,40 +34,196 @@ const FALLBACK_DATA = {
     { id: 'm15', date: '2026-06-11T20:15:00', rival: 'MINGORRUBIO BALOMPIÉ', home: false, venue: 'Velòdrom F7', result: '-' },
     { id: 'm16', date: '2026-06-18T21:10:00', rival: 'SMASH BROTHERS', home: true, venue: 'Velòdrom F7', result: '-' }
   ],
-  votesByMatch: {},
-  attendanceByMatch: { m1: { p3: 'confirmado', p6: 'confirmado', p7: 'pendiente', p15: 'confirmado', p2: 'pendiente' } },
   lineup: ['mordillo', 'pomares', 'cuco', 'altimira', 'dani', 'alex', 'porras']
 };
 
-const USERS = [
-  { username: 'plans', pin: '1', playerId: 'p1', role: 'player' },
-  { username: 'pomares', pin: '2', playerId: 'p2', role: 'player' },
-  { username: 'porras', pin: '4', playerId: 'p3', role: 'admin' },
-  { username: 'cuco', pin: '5', playerId: 'p4', role: 'player' },
-  { username: 'altimira', pin: '7', playerId: 'p5', role: 'player' },
-  { username: 'alex', pin: '9', playerId: 'p6', role: 'player' },
-  { username: 'dani', pin: '10', playerId: 'p7', role: 'player' },
-  { username: 'delrio', pin: '11', playerId: 'p8', role: 'player' },
-  { username: 'peke', pin: '17', playerId: 'p9', role: 'player' },
-  { username: 'sergio', pin: '19', playerId: 'p10', role: 'player' },
-  { username: 'rony', pin: '23', playerId: 'p11', role: 'player' },
-  { username: 'malle', pin: '30', playerId: 'p12', role: 'player' },
-  { username: 'edgar', pin: '44', playerId: 'p13', role: 'player' },
-  { username: 'joeliko', pin: '69', playerId: 'p14', role: 'player' },
-  { username: 'mordillo', pin: '99', playerId: 'p15', role: 'player' }
-];
+const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const state = { data: null, sessionUser: null, selectedMatchId: null };
+const state = {
+  data: null,
+  sessionUser: null,
+  selectedMatchId: null,
+  convocatoria: {
+    matchId: null,
+    attendanceByUserId: {},
+    profileIdByPlayerId: {},
+    lastSaveResult: '-'
+  },
+  mvp: {
+    selectedMatchId: null,
+    votesByPlayerForSelected: {},
+    globalTotals: {},
+    lastVotePayload: '-'
+  }
+};
 
 const $ = (id) => document.getElementById(id);
 
+function mapPlayerRow(row) {
+  const stats = row.stats || {};
+  return {
+    id: String(row.id),
+    name: row.name || row.display_name || 'Jugador',
+    position: row.position || 'N/D',
+    dorsal: Number(row.number ?? row.dorsal ?? 0),
+    stats: {
+      goles: Number(row.goles ?? row.goals ?? stats.goles ?? stats.goals ?? 0),
+      asistencias: Number(row.asistencias ?? row.assists ?? stats.asistencias ?? stats.assists ?? 0),
+      amarillas: Number(row.amarillas ?? row.yellow_cards ?? stats.amarillas ?? stats.yellow_cards ?? 0),
+      rojas: Number(row.rojas ?? row.red_cards ?? stats.rojas ?? stats.red_cards ?? 0),
+      mvps: Number(row.mvps ?? stats.mvps ?? 0)
+    }
+  };
+}
+
+function mapMatchRow(row) {
+  return {
+    id: String(row.id),
+    date: row.date_time || row.date,
+    rival: row.rival || row.opponent || 'Rival',
+    home: row.home ?? row.is_home ?? true,
+    venue: row.venue || 'Velòdrom F7',
+    result: row.result || '-'
+  };
+}
+
+
+function normalizeAttendanceStatus(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'yes') return 'yes';
+  if (value === 'maybe') return 'maybe';
+  if (value === 'no') return 'no';
+  if (value === 'pending') return 'pending';
+  return 'pending';
+}
+
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+function getConvocatoriaStatusForPlayer(playerId) {
+  const userId = state.convocatoria.profileIdByPlayerId[playerId];
+  if (!userId) return 'pending';
+  return normalizeAttendanceStatus(state.convocatoria.attendanceByUserId[userId]);
+}
+
+async function loadConvocatoriaData(matchId) {
+  state.convocatoria.matchId = matchId;
+  state.convocatoria.attendanceByUserId = {};
+  state.convocatoria.profileIdByPlayerId = {};
+
+  if (!supabaseClient || !matchId) return;
+
+  if (!isUuid(matchId)) {
+    const error = { message: 'matchId no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+    console.error('[attendance] load error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    return;
+  }
+
+  const { data: profiles, error: profilesError } = await supabaseClient
+    .from('profiles')
+    .select('id, display_name, role, player_id');
+
+  if (profilesError) {
+    console.error('[attendance] profiles load error', profilesError);
+    showToast('Error cargando perfiles: ' + (profilesError.message || profilesError.code), 'error');
+  } else if (Array.isArray(profiles)) {
+    profiles.forEach((profile) => {
+      if (profile.player_id) {
+        state.convocatoria.profileIdByPlayerId[String(profile.player_id)] = profile.id;
+      }
+    });
+  }
+
+  const { data: attendanceRows, error: attendanceError } = await supabaseClient
+    .from('attendance')
+    .select('user_id,status')
+    .eq('match_id', matchId);
+
+  if (attendanceError) {
+    console.error('[attendance] load error', attendanceError);
+    showToast('Error cargando asistencia: ' + (attendanceError.message || attendanceError.code), 'error');
+    return;
+  }
+
+  (attendanceRows || []).forEach((row) => {
+    if (row.user_id) {
+      state.convocatoria.attendanceByUserId[row.user_id] = row.status;
+    }
+  });
+}
+
+async function saveAttendance(matchId, userId, status) {
+  console.log('[attendance] saving', { matchId, userId, status, type: typeof matchId });
+
+  if (!supabaseClient) {
+    const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    showToast('Error guardando asistencia: ' + (error.message || error.code), 'error');
+    return false;
+  }
+
+  if (!isUuid(matchId)) {
+    const error = { message: 'matchId no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    showToast('Error guardando asistencia: ' + error.message, 'error');
+    return false;
+  }
+
+  const normalizedStatus = normalizeAttendanceStatus(status);
+  const { data, error } = await supabaseClient
+    .from('attendance')
+    .upsert({ match_id: matchId, user_id: userId, status: normalizedStatus }, { onConflict: 'match_id,user_id' })
+    .select();
+
+  if (error) {
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, message: error.message, code: error.code });
+    showToast('Error guardando asistencia: ' + (error.message || error.code), 'error');
+    return false;
+  }
+
+  console.log('[attendance] ok', data);
+  state.convocatoria.lastSaveResult = JSON.stringify({ ok: true, rows: Array.isArray(data) ? data.length : 0 });
+  showToast('Asistencia guardada', 'success');
+  return true;
+}
+
 async function loadData() {
+  const fallbackData = JSON.parse(JSON.stringify(FALLBACK_DATA));
+
+  if (supabaseClient) {
+    try {
+      const [playersRes, matchesRes] = await Promise.all([
+        supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
+        supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
+      ]);
+
+      if (!playersRes.error && !matchesRes.error && Array.isArray(playersRes.data) && Array.isArray(matchesRes.data)) {
+        state.data = {
+          ...fallbackData,
+          players: playersRes.data.map(mapPlayerRow),
+          matches: matchesRes.data.map(mapMatchRow)
+        };
+        return;
+      }
+    } catch {
+      // Fallbacks handled below.
+    }
+  }
+
   try {
-    const res = await fetch('./data.json');
+    const res = await fetch('data.json');
     if (!res.ok) throw new Error('no data');
     state.data = await res.json();
+    return;
   } catch {
-    state.data = FALLBACK_DATA;
+    state.data = fallbackData;
   }
 }
 
@@ -84,9 +240,6 @@ function writeJSON(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function getSessionUser() {
-  return readJSON('sessionUser', null);
-}
 
 function getPlayers() {
   const override = readJSON('playerStatsOverride', {});
@@ -100,22 +253,6 @@ function getMatches() {
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
-function getAttendanceMap(matchId) {
-  const saved = readJSON('attendanceByMatch', {});
-  const base = state.data.attendanceByMatch[matchId] || {};
-  const merged = { ...base, ...(saved[matchId] || {}) };
-  const all = {};
-  getPlayers().forEach((p) => {
-    all[p.id] = merged[p.id] || 'pendiente';
-  });
-  return all;
-}
-
-function setAttendance(matchId, playerId, status) {
-  const all = readJSON('attendanceByMatch', {});
-  all[matchId] = { ...(all[matchId] || {}), [playerId]: status };
-  writeJSON('attendanceByMatch', all);
-}
 
 function getUpcomingMatch() {
   const now = new Date();
@@ -127,7 +264,10 @@ function formatDate(iso) {
 }
 
 function statusLabel(status) {
-  return status === 'confirmado' ? '✅ Confirmado' : status === 'no' ? '❌ No disponible' : '⏳ Pendiente';
+  if (status === 'yes') return '✅ Confirmado';
+  if (status === 'no') return '❌ Baja';
+  if (status === 'maybe') return '⏳ Dudoso';
+  return '⏳ Pendiente';
 }
 
 function parseResult(result) {
@@ -138,23 +278,15 @@ function parseResult(result) {
 }
 
 function getVotesTotals() {
-  const totals = {};
-  const fromData = state.data.votesByMatch || {};
-  Object.values(fromData).forEach((votes) => {
-    Object.entries(votes).forEach(([playerId, count]) => {
-      totals[playerId] = (totals[playerId] || 0) + Number(count || 0);
-    });
-  });
-  Object.keys(localStorage).forEach((key) => {
-    if (!key.startsWith('mvpVote:')) return;
-    const playerId = localStorage.getItem(key);
-    if (playerId) totals[playerId] = (totals[playerId] || 0) + 1;
-  });
-  return totals;
+  return state.mvp.globalTotals || {};
 }
 
 function getCurrentPlayer() {
-  return getPlayers().find((p) => p.id === state.sessionUser.playerId);
+  if (!state.sessionUser) return null;
+  const byProfile = getPlayers().find((p) => p.id === state.sessionUser.profileId);
+  if (byProfile) return byProfile;
+  const display = (state.sessionUser.displayName || '').toLowerCase();
+  return getPlayers().find((p) => p.name.toLowerCase() === display) || null;
 }
 
 function route() {
@@ -167,52 +299,108 @@ function route() {
 }
 
 function renderHome() {
-  const me = getCurrentPlayer();
+  const players = getPlayers();
+  if (!players.length) {
+    $('myStats').innerHTML = '<p>Sin jugadores cargados todavía.</p>';
+    $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
+    $('lineupList').innerHTML = '<span>Sin alineación disponible.</span>';
+    $('nextMatchText').textContent = 'Sin partido próximo';
+    return;
+  }
+
+  const me = getCurrentPlayer() || players[0];
   const nextMatch = getUpcomingMatch();
   const votes = getVotesTotals();
-  const ranking = getPlayers()
-    .map((p) => ({ ...p, totalMvp: p.stats.mvps + (votes[p.id] || 0) }))
+  const ranking = players
+    .map((p) => ({ ...p, totalMvp: (votes[p.id] || 0) }))
     .sort((a, b) => b.totalMvp - a.totalMvp);
 
   $('myStats').innerHTML = [
     ['Goles', me.stats.goles], ['Asist.', me.stats.asistencias], ['Amar.', me.stats.amarillas],
-    ['Rojas', me.stats.rojas], ['MVPs', me.stats.mvps + (votes[me.id] || 0)]
+    ['Rojas', me.stats.rojas], ['MVPs', (votes[me.id] || 0)]
   ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
 
   $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
-  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('');
-  $('lineupList').innerHTML = state.data.lineup.map((p) => `<span>${p}</span>`).join('');
+  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
+  $('lineupList').innerHTML = (state.data.lineup || []).map((p) => `<span>${p}</span>`).join('') || '<span>Sin alineación disponible.</span>';
 }
 
 function renderConvocatoria() {
   const matches = getMatches();
-  const upcoming = getUpcomingMatch();
-  if (!state.selectedMatchId) state.selectedMatchId = upcoming?.id || matches[0]?.id;
+  const uuidMatches = matches.filter((m) => isUuid(m.id));
+  const upcoming = uuidMatches.find((m) => new Date(m.date) > new Date()) || uuidMatches[0];
+  if (!state.selectedMatchId || !isUuid(state.selectedMatchId)) state.selectedMatchId = upcoming?.id || uuidMatches[0]?.id || null;
 
-  $('matchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  if (!uuidMatches.length) {
+    $('matchSelector').innerHTML = '';
+    $('attendanceList').innerHTML = '<li>No hay partidos con UUID de Supabase para Convocatoria.</li>';
+    $('countConfirmados').textContent = 'Confirmados: 0';
+    $('countPendientes').textContent = 'Pendientes: 0';
+    $('countBajas').textContent = 'Bajas: 0';
+    return;
+  }
+
+  $('matchSelector').innerHTML = uuidMatches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('matchSelector').value = state.selectedMatchId;
 
-  const attendance = getAttendanceMap(state.selectedMatchId);
   const players = getPlayers();
   const isAdmin = state.sessionUser.role === 'admin';
+  const authUid = state.sessionUser.id;
+
+  console.log('[attendance] selectedMatchId', state.selectedMatchId, typeof state.selectedMatchId);
+
+  if (!isUuid(state.selectedMatchId)) {
+    $('attendanceList').innerHTML = '<li>Este partido no tiene UUID de Supabase. Convocatoria solo usa public.attendance.</li>';
+    $('countConfirmados').textContent = 'Confirmados: 0';
+    $('countPendientes').textContent = 'Pendientes: 0';
+    $('countBajas').textContent = 'Bajas: 0';
+
+    const debug = $('convocatoriaDebug');
+    if (debug && isAdmin) {
+      debug.classList.remove('hidden');
+      debug.textContent = [
+        '[debug/convocatoria]',
+        `selectedMatchId: ${state.selectedMatchId || '-'}`,
+        `type: ${typeof state.selectedMatchId}`,
+        `authUid: ${authUid || '-'}`,
+        `playerId: ${state.sessionUser.playerId || '-'}`,
+        `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
+      ].join('\n');
+    }
+    return;
+  }
+
+  if (state.convocatoria.matchId !== state.selectedMatchId) {
+    $('attendanceList').innerHTML = '<li>Cargando asistencia...</li>';
+    loadConvocatoriaData(state.selectedMatchId).then(() => renderConvocatoria());
+    return;
+  }
 
   let confirmados = 0;
   let pendientes = 0;
   let bajas = 0;
 
   $('attendanceList').innerHTML = players.map((p) => {
-    const st = attendance[p.id];
-    if (st === 'confirmado') confirmados += 1;
+    const userId = state.convocatoria.profileIdByPlayerId[p.id];
+    const st = getConvocatoriaStatusForPlayer(p.id);
+
+    if (st === 'yes') confirmados += 1;
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const editable = isAdmin || p.id === state.sessionUser.playerId;
+    const isOwnPlayer = p.id === state.sessionUser.playerId;
+    const editable = isAdmin ? Boolean(userId) : (isOwnPlayer && userId === authUid);
+    const showActions = isAdmin || isOwnPlayer;
+    const disabledAttr = editable ? '' : 'disabled';
+
+    const accountHint = !userId ? '<small>sin cuenta</small>' : '';
+
     return `<li>
-      <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
-      <div class="att-actions ${editable ? '' : 'hidden'}">
-        <button type="button" data-action="att" data-player="${p.id}" data-status="confirmado">✅</button>
-        <button type="button" data-action="att" data-player="${p.id}" data-status="pendiente">⏳</button>
-        <button type="button" data-action="att" data-player="${p.id}" data-status="no">❌</button>
+      <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span> ${accountHint}
+      <div class="att-actions ${showActions ? '' : 'hidden'}">
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>⏳</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
       </div>
     </li>`;
   }).join('');
@@ -220,10 +408,34 @@ function renderConvocatoria() {
   $('countConfirmados').textContent = `Confirmados: ${confirmados}`;
   $('countPendientes').textContent = `Pendientes: ${pendientes}`;
   $('countBajas').textContent = `Bajas: ${bajas}`;
+
+  const debug = $('convocatoriaDebug');
+  if (debug) {
+    if (isAdmin) {
+      debug.classList.remove('hidden');
+      debug.textContent = [
+        '[debug/convocatoria]',
+        `selectedMatchId: ${state.selectedMatchId || '-'}`,
+        `type: ${typeof state.selectedMatchId}`,
+        `authUid: ${authUid || '-'}`,
+        `playerId: ${state.sessionUser.playerId || '-'}`,
+        `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
+      ].join('\n');
+    } else {
+      debug.classList.add('hidden');
+      debug.textContent = '';
+    }
+  }
 }
 
 function renderCalendario() {
-  $('calendarList').innerHTML = getMatches().map((m) => `
+  const matches = getMatches();
+  if (!matches.length) {
+    $('calendarList').innerHTML = '<li>No hay partidos cargados todavía.</li>';
+    return;
+  }
+
+  $('calendarList').innerHTML = matches.map((m) => `
     <li>
       <button type="button" data-action="open-match" data-id="${m.id}">
         ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${m.result}
@@ -254,26 +466,103 @@ function renderClub() {
     ['PJ', PJ], ['PG', PG], ['PE', PE], ['PP', PP], ['GF', GF], ['GC', GC]
   ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('');
 
-  $('squadList').innerHTML = getPlayers()
-    .map((p) => `<li><strong>#${p.dorsal} ${p.name}</strong> (${p.position}) · G:${p.stats.goles} A:${p.stats.asistencias} MVP:${p.stats.mvps}</li>`)
-    .join('');
+  const players = getPlayers();
+  $('squadList').innerHTML = players.length
+    ? players.map((p) => `<li><strong>#${p.dorsal} ${p.name}</strong> (${p.position}) · G:${p.stats.goles} A:${p.stats.asistencias} MVP:${p.stats.mvps}</li>`).join('')
+    : '<li>No hay jugadores cargados todavía.</li>';
+}
+
+
+async function loadMvpData(selectedMatchId) {
+  state.mvp.selectedMatchId = selectedMatchId || state.mvp.selectedMatchId;
+  state.mvp.votesByPlayerForSelected = {};
+  state.mvp.globalTotals = {};
+
+  if (!supabaseClient) return;
+
+  const { data, error } = await supabaseClient
+    .from('mvp_votes')
+    .select('match_id,voter_user_id,voted_player_id');
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || 'Error cargando votos MVP', 'error');
+    return;
+  }
+
+  (data || []).forEach((row) => {
+    const playerId = String(row.voted_player_id || '');
+    if (!playerId) return;
+    state.mvp.globalTotals[playerId] = (state.mvp.globalTotals[playerId] || 0) + 1;
+    if (state.mvp.selectedMatchId && row.match_id === state.mvp.selectedMatchId) {
+      state.mvp.votesByPlayerForSelected[playerId] = (state.mvp.votesByPlayerForSelected[playerId] || 0) + 1;
+    }
+  });
+}
+
+async function saveMvpVote(matchId, votedPlayerId) {
+  const payload = {
+    match_id: matchId,
+    voter_user_id: state.sessionUser.id,
+    voted_player_id: votedPlayerId
+  };
+  state.mvp.lastVotePayload = JSON.stringify(payload);
+  console.log('MVP vote payload:', payload);
+
+  const { error } = await supabaseClient
+    .from('mvp_votes')
+    .upsert(payload, { onConflict: 'match_id,voter_user_id' });
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || 'Error guardando voto MVP', 'error');
+    return false;
+  }
+
+  showToast('Voto registrado', 'success');
+  return true;
 }
 
 function renderMvp() {
-  const matches = getMatches();
-  const players = getPlayers();
-  const upcoming = getUpcomingMatch();
+  const matches = getMatches().filter((m) => isUuid(m.id));
+  const players = getPlayers().filter((p) => isUuid(p.id));
+  const upcoming = matches.find((m) => new Date(m.date) > new Date()) || matches[0];
+
+  if (!matches.length || !players.length) {
+    $('mvpMatchSelector').innerHTML = '';
+    $('mvpPlayerSelector').innerHTML = '';
+    $('mvpRankingList').innerHTML = '<li>Sin datos para MVP todavía.</li>';
+    return;
+  }
+
+  if (!state.mvp.selectedMatchId || !isUuid(state.mvp.selectedMatchId)) {
+    state.mvp.selectedMatchId = upcoming?.id || matches[0].id;
+  }
 
   $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  $('mvpMatchSelector').value = state.mvp.selectedMatchId;
   $('mvpPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
-  if (upcoming) $('mvpMatchSelector').value = upcoming.id;
 
-  const votes = getVotesTotals();
+  const votesForSelected = state.mvp.votesByPlayerForSelected || {};
   const ranking = players
-    .map((p) => ({ ...p, total: p.stats.mvps + (votes[p.id] || 0) }))
+    .map((p) => ({ ...p, total: (state.mvp.globalTotals[p.id] || 0), selectedVotes: votesForSelected[p.id] || 0 }))
     .sort((a, b) => b.total - a.total);
 
-  $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span></li>`).join('');
+  $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
+
+  const debug = $('mvpDebug');
+  if (debug && state.sessionUser?.role === 'admin') {
+    debug.classList.remove('hidden');
+    debug.textContent = [
+      '[debug/mvp]',
+      `matchId: ${state.mvp.selectedMatchId || '-'}`,
+      `authUid: ${state.sessionUser.id || '-'}`,
+      `lastVote: ${state.mvp.lastVotePayload || '-'}`
+    ].join('\n');
+  } else if (debug) {
+    debug.classList.add('hidden');
+    debug.textContent = '';
+  }
 }
 
 function renderAdmin() {
@@ -291,7 +580,7 @@ function renderAdmin() {
 }
 
 function renderAll() {
-  $('welcomeText').textContent = `Hola, ${state.sessionUser.username}`;
+  $('welcomeText').textContent = `Hola, ${state.sessionUser.displayName}`;
   renderHome();
   renderConvocatoria();
   renderCalendario();
@@ -301,9 +590,10 @@ function renderAll() {
   route();
 }
 
-function showToast(text) {
+function showToast(text, type = "info") {
   const t = $('toast');
   t.textContent = text;
+  t.dataset.type = type;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 1600);
 }
@@ -311,9 +601,8 @@ function showToast(text) {
 function generateConvImage(matchId) {
   const match = getMatches().find((m) => m.id === matchId);
   if (!match) return;
-  const attendance = getAttendanceMap(matchId);
   const players = getPlayers();
-  const confirmed = players.filter((p) => attendance[p.id] === 'confirmado');
+  const confirmed = players.filter((p) => getConvocatoriaStatusForPlayer(p.id) === 'yes');
 
   const canvas = document.createElement('canvas');
   canvas.width = 1080;
@@ -369,29 +658,125 @@ function openMatchModal(matchId) {
   $('matchModal').showModal();
 }
 
+async function ensureProfile(user) {
+  if (!supabaseClient || !user) return null;
+
+  const { data: existing, error: selectError } = await supabaseClient
+    .from('profiles')
+    .select('id, display_name, role, player_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (selectError) {
+    console.warn('No se pudo leer perfil:', selectError.message);
+  }
+
+  if (existing) return existing;
+
+  const displayName = (user.email || 'jugador').split('@')[0];
+  const profilePayload = { id: user.id, display_name: displayName, role: 'player', player_id: null };
+  const { data: inserted, error: insertError } = await supabaseClient
+    .from('profiles')
+    .insert(profilePayload)
+    .select('id, display_name, role, player_id')
+    .single();
+
+  if (insertError) {
+    console.warn('No se pudo crear perfil:', insertError.message);
+    return profilePayload;
+  }
+
+  return inserted;
+}
+
+function applyAuthUI(sessionUser) {
+  state.sessionUser = sessionUser;
+  const loggedIn = Boolean(sessionUser);
+  $('loginScreen').classList.toggle('hidden', loggedIn);
+  $('app').classList.toggle('hidden', !loggedIn);
+
+  if (!loggedIn) {
+    window.location.hash = '#home';
+    return;
+  }
+
+  if (!window.location.hash) {
+    window.location.hash = '#home';
+  }
+
+  renderAll();
+}
+
+async function syncSession() {
+  if (!supabaseClient) {
+    $('loginError').textContent = 'No se pudo inicializar Supabase.';
+    applyAuthUI(null);
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    $('loginError').textContent = 'Error al recuperar sesión.';
+    applyAuthUI(null);
+    return;
+  }
+
+  const user = data.session?.user;
+  if (!user) {
+    applyAuthUI(null);
+    return;
+  }
+
+  const profile = await ensureProfile(user);
+  await loadData();
+  state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
+  await loadConvocatoriaData(state.selectedMatchId);
+  await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
+
+  applyAuthUI({
+    id: user.id,
+    email: user.email,
+    displayName: profile?.display_name || (user.email || 'jugador').split('@')[0],
+    role: profile?.role || 'player',
+    profileId: profile?.id || user.id,
+    playerId: profile?.player_id ? String(profile.player_id) : null
+  });
+}
+
 function bindEvents() {
-  $('loginForm').addEventListener('submit', (e) => {
+  $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const username = $('username').value.trim().toLowerCase();
-    const pin = $('pin').value.trim();
-    const found = USERS.find((u) => u.username === username && u.pin === pin);
-    if (!found) {
-      $('loginError').textContent = 'Credenciales incorrectas.';
+    $('loginError').textContent = '';
+
+    const email = $('email').value.trim();
+    const password = $('password').value.trim();
+
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      $('loginError').textContent = error.message || 'Credenciales incorrectas.';
       return;
     }
-    writeJSON('sessionUser', found);
-    state.sessionUser = found;
-    $('loginScreen').classList.add('hidden');
-    $('app').classList.remove('hidden');
-    renderAll();
+
+    await syncSession();
   });
 
-  $('logoutBtn').addEventListener('click', () => {
-    localStorage.removeItem('sessionUser');
-    state.sessionUser = null;
-    $('app').classList.add('hidden');
-    $('loginScreen').classList.remove('hidden');
-    window.location.hash = '#home';
+  $('signupBtn').addEventListener('click', async () => {
+    $('loginError').textContent = '';
+    const email = $('email').value.trim();
+    const password = $('password').value.trim();
+
+    const { error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) {
+      $('loginError').textContent = error.message || 'No se pudo crear la cuenta.';
+      return;
+    }
+
+    showToast('Cuenta creada. Revisa tu email si hay confirmación activa.');
+  });
+
+  $('logoutBtn').addEventListener('click', async () => {
+    await supabaseClient.auth.signOut();
+    applyAuthUI(null);
   });
 
   $('goConfirmBtn').addEventListener('click', () => {
@@ -401,21 +786,66 @@ function bindEvents() {
     route();
   });
 
-  $('matchSelector').addEventListener('change', (e) => {
+  $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
+    console.log('[attendance] match change', state.selectedMatchId, typeof state.selectedMatchId);
+    await loadConvocatoriaData(state.selectedMatchId);
     renderConvocatoria();
   });
 
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
 
     if (btn.dataset.action === 'att') {
-      const playerId = btn.dataset.player;
       const status = btn.dataset.status;
-      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.playerId === playerId;
-      if (!canEdit) return;
-      setAttendance(state.selectedMatchId, playerId, status);
+      const matchId = $('matchSelector').value;
+      const mappedUserId = btn.dataset.userId;
+      const isAdmin = state.sessionUser.role === 'admin';
+      const userId = isAdmin ? mappedUserId : state.sessionUser.id;
+      console.log('[attendance] click save context', { selectedMatchId: matchId, type: typeof matchId, isAdmin, targetUserId: userId });
+
+      if (!matchId) {
+        const error = { message: 'Partido no seleccionado', code: 'NO_MATCH' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      if (!isUuid(matchId)) {
+        const error = { message: 'El partido seleccionado no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      if (!supabaseClient) {
+        const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      if (!userId) {
+        const error = { message: 'Ese jugador aún no tiene cuenta vinculada', code: 'NO_PROFILE' };
+        console.error('[attendance] error', error);
+        showToast(error.message, 'error');
+        return;
+      }
+
+      const canEdit = isAdmin || state.sessionUser.id === userId;
+      if (!canEdit) {
+        const error = { message: 'Sin permisos para editar esta fila', code: 'FORBIDDEN' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      const ok = await saveAttendance(matchId, userId, status);
+      if (!ok) return;
+
+      state.selectedMatchId = matchId;
+      await loadConvocatoriaData(matchId);
       renderConvocatoria();
       renderHome();
     }
@@ -428,15 +858,35 @@ function bindEvents() {
   $('generateImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId));
   $('adminImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId || getUpcomingMatch()?.id));
 
-  $('voteBtn').addEventListener('click', () => {
+  $('mvpMatchSelector').addEventListener('change', async (e) => {
+    state.mvp.selectedMatchId = e.target.value;
+    await loadMvpData(state.mvp.selectedMatchId);
+    renderMvp();
+  });
+
+  $('voteBtn').addEventListener('click', async () => {
     const matchId = $('mvpMatchSelector').value;
     const playerId = $('mvpPlayerSelector').value;
-    const key = `mvpVote:${matchId}:${state.sessionUser.username}`;
-    if (localStorage.getItem(key)) {
-      $('voteMessage').textContent = 'Ya votaste este partido.';
+
+    if (!isUuid(matchId) || !isUuid(playerId)) {
+      const error = { message: 'match/player id inválido para MVP UUID', code: 'BAD_MVP_IDS', matchId, playerId };
+      console.error(error);
+      showToast(error.message, 'error');
       return;
     }
-    localStorage.setItem(key, playerId);
+
+    if (!supabaseClient) {
+      const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+      console.error(error);
+      showToast(error.message, 'error');
+      return;
+    }
+
+    const ok = await saveMvpVote(matchId, playerId);
+    if (!ok) return;
+
+    state.mvp.selectedMatchId = matchId;
+    await loadMvpData(matchId);
     $('voteMessage').textContent = 'Voto registrado.';
     renderMvp();
     renderHome();
@@ -495,17 +945,29 @@ async function init() {
   await loadData();
   bindEvents();
 
-  const session = getSessionUser();
-  if (!session) {
-    $('loginScreen').classList.remove('hidden');
-    $('app').classList.add('hidden');
+  if (!supabaseClient) {
+    $('loginError').textContent = 'No se pudo cargar Supabase SDK.';
     return;
   }
 
-  state.sessionUser = session;
-  $('loginScreen').classList.add('hidden');
-  $('app').classList.remove('hidden');
-  renderAll();
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    if (!session?.user) {
+      applyAuthUI(null);
+      return;
+    }
+
+    const profile = await ensureProfile(session.user);
+    applyAuthUI({
+      id: session.user.id,
+      email: session.user.email,
+      displayName: profile?.display_name || (session.user.email || 'jugador').split('@')[0],
+      role: profile?.role || 'player',
+      profileId: profile?.id || session.user.id,
+      playerId: profile?.player_id ? String(profile.player_id) : null
+    });
+  });
+
+  await syncSession();
 }
 
 init();

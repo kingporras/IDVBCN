@@ -3,12 +3,14 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open('inter-app-cache').then(cache => {
       return cache.addAll([
-        '/',
-        '/index.html',
-        '/style.css',
-        '/script.js',
-        '/manifest.json',
-        '/escudo.png'
+        './',
+        'index.html',
+        'style.css',
+        'script.js',
+        'data.json',
+        'manifest.json',
+        'escudo.svg',
+        'fondo.svg'
       ]);
     })
   );
