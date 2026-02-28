@@ -63,7 +63,7 @@ const $ = (id) => document.getElementById(id);
 
 async function loadData() {
   try {
-    const res = await fetch('./data.json');
+    const res = await fetch('data.json');
     if (!res.ok) throw new Error('no data');
     state.data = await res.json();
   } catch {
