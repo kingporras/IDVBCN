@@ -5,6 +5,10 @@ const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBL
 const state = {
   data: null,
   sessionUser: null,
+  currentProfile: null,
+  isAdmin: false,
+  profileFetchSucceeded: null,
+  profileFetchErrorMessage: '',
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -246,9 +250,92 @@ function getCurrentPlayer() {
   return getPlayers().find((p) => p.name.toLowerCase() === display) || null;
 }
 
+function setProfileBanner(message = '') {
+  let banner = $('profileErrorBanner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'profileErrorBanner';
+    banner.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;z-index:9999;background:#fff3cd;color:#664d03;border:1px solid #ffecb5;border-radius:8px;padding:6px 10px;font-size:12px;display:none;';
+    document.body.prepend(banner);
+  }
+
+  if (!message) {
+    banner.textContent = '';
+    banner.style.display = 'none';
+    return;
+  }
+
+  banner.textContent = message;
+  banner.style.display = 'block';
+}
+
+async function fetchCurrentProfile(userId) {
+  if (!supabaseClient || !userId) {
+    state.currentProfile = null;
+    state.isAdmin = false;
+    state.profileFetchSucceeded = false;
+    state.profileFetchErrorMessage = 'Sesión inválida o cliente no disponible';
+    return null;
+  }
+
+  const { data: profile, error } = await supabaseClient
+    .from('profiles')
+    .select('id, role, display_name, player_id')
+    .eq('id', userId)
+    .single();
+
+  if (error) {
+    state.currentProfile = null;
+    state.isAdmin = false;
+    state.profileFetchSucceeded = false;
+    state.profileFetchErrorMessage = error.message || 'Error desconocido';
+    setProfileBanner('No puedo leer tu perfil (RLS?)');
+    console.error('[profile] No puedo leer tu perfil (RLS?)', error);
+    return null;
+  }
+
+  setProfileBanner('');
+  state.currentProfile = profile;
+  state.isAdmin = profile.role === 'admin';
+  state.profileFetchSucceeded = true;
+  state.profileFetchErrorMessage = '';
+  return profile;
+}
+
+
+function renderAuthDebugPanel() {
+  const app = $('app');
+  if (!app) return;
+
+  let panel = $('authDebugPanel');
+  if (!state.sessionUser) {
+    if (panel) panel.classList.add('hidden');
+    return;
+  }
+
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.id = 'authDebugPanel';
+    panel.className = 'card';
+    panel.style.cssText = 'margin:0 0 .75rem 0;font-size:.82rem;background:#eef7ff;border:1px solid #cfe6ff;';
+    app.prepend(panel);
+  }
+
+  panel.classList.remove('hidden');
+  panel.innerHTML = [
+    '<strong>Debug Auth/Profile</strong>',
+    `<div>session.user.id: ${state.sessionUser.id || '-'}</div>`,
+    `<div>session.user.email: ${state.sessionUser.email || '-'}</div>`,
+    `<div>profile fetch ok: ${state.profileFetchSucceeded === null ? '-' : String(state.profileFetchSucceeded)}</div>`,
+    `<div>profile.role: ${state.currentProfile?.role || '-'}</div>`,
+    `<div>state.isAdmin: ${String(state.isAdmin)}</div>`,
+    `<div>profile fetch error: ${state.profileFetchErrorMessage || '-'}</div>`
+  ].join('');
+}
+
 function route() {
   const hash = window.location.hash.replace('#', '') || 'home';
-  const isAdmin = state.sessionUser?.role === 'admin';
+  const isAdmin = state.isAdmin;
   const view = hash === 'admin' && !isAdmin ? 'home' : hash;
 
   document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
@@ -301,7 +388,7 @@ function renderConvocatoria() {
   $('matchSelector').value = state.selectedMatchId;
 
   const players = getPlayers();
-  const isAdmin = state.sessionUser.role === 'admin';
+  const isAdmin = state.isAdmin;
   const authUid = state.sessionUser.id;
 
   console.log('[attendance] selectedMatchId', state.selectedMatchId, typeof state.selectedMatchId);
@@ -560,7 +647,7 @@ function renderMvp() {
   $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
 
   const debug = $('mvpDebug');
-  if (debug && state.sessionUser?.role === 'admin') {
+  if (debug && state.isAdmin) {
     debug.classList.remove('hidden');
     debug.textContent = [
       '[debug/mvp]',
@@ -575,7 +662,7 @@ function renderMvp() {
 }
 
 function renderAdmin() {
-  const isAdmin = state.sessionUser.role === 'admin';
+  const isAdmin = state.isAdmin;
   document.querySelector('.admin-tab').classList.toggle('hidden', !isAdmin);
   document.querySelector('[data-view="admin"]').classList.toggle('hidden', !isAdmin);
 
@@ -652,7 +739,7 @@ function openMatchModal(matchId) {
   $('modalDetail').textContent = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} · Actualizar jueves post-partido`;
 
   const adminZone = $('modalAdminEdit');
-  const isAdmin = state.sessionUser.role === 'admin';
+  const isAdmin = state.isAdmin;
   adminZone.classList.toggle('hidden', !isAdmin);
   $('modalResultInput').value = m.result;
   $('modalSaveResultBtn').onclick = () => {
@@ -667,37 +754,6 @@ function openMatchModal(matchId) {
   $('matchModal').showModal();
 }
 
-async function ensureProfile(user) {
-  if (!supabaseClient || !user) return null;
-
-  const { data: existing, error: selectError } = await supabaseClient
-    .from('profiles')
-    .select('id, display_name, role, player_id')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (selectError) {
-    console.warn('No se pudo leer perfil:', selectError.message);
-  }
-
-  if (existing) return existing;
-
-  const displayName = (user.email || 'jugador').split('@')[0];
-  const profilePayload = { id: user.id, display_name: displayName, role: 'player', player_id: null };
-  const { data: inserted, error: insertError } = await supabaseClient
-    .from('profiles')
-    .insert(profilePayload)
-    .select('id, display_name, role, player_id')
-    .single();
-
-  if (insertError) {
-    console.warn('No se pudo crear perfil:', insertError.message);
-    return profilePayload;
-  }
-
-  return inserted;
-}
-
 function applyAuthUI(sessionUser) {
   state.sessionUser = sessionUser;
   const loggedIn = Boolean(sessionUser);
@@ -705,6 +761,10 @@ function applyAuthUI(sessionUser) {
   $('app').classList.toggle('hidden', !loggedIn);
 
   if (!loggedIn) {
+    state.profileFetchSucceeded = null;
+    state.profileFetchErrorMessage = '';
+    setProfileBanner('');
+    renderAuthDebugPanel();
     window.location.hash = '#home';
     return;
   }
@@ -732,11 +792,15 @@ async function syncSession() {
 
   const user = data.session?.user;
   if (!user) {
+    state.currentProfile = null;
+    state.isAdmin = false;
+    state.profileFetchSucceeded = null;
+    state.profileFetchErrorMessage = '';
     applyAuthUI(null);
     return;
   }
 
-  const profile = await ensureProfile(user);
+  const profile = await fetchCurrentProfile(user.id);
   await loadData();
   state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
   await loadConvocatoriaData(state.selectedMatchId);
@@ -750,6 +814,8 @@ async function syncSession() {
     profileId: profile?.id || user.id,
     playerId: profile?.player_id ? String(profile.player_id) : null
   });
+  renderAll();
+  renderAuthDebugPanel();
 }
 
 function bindEvents() {
@@ -810,7 +876,7 @@ function bindEvents() {
       const status = btn.dataset.status;
       const matchId = $('matchSelector').value;
       const mappedUserId = btn.dataset.userId;
-      const isAdmin = state.sessionUser.role === 'admin';
+      const isAdmin = state.isAdmin;
       const userId = isAdmin ? mappedUserId : state.sessionUser.id;
       console.log('[attendance] click save context', { selectedMatchId: matchId, type: typeof matchId, isAdmin, targetUserId: userId });
 
@@ -962,11 +1028,20 @@ async function init() {
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     if (!session?.user) {
+      state.currentProfile = null;
+      state.isAdmin = false;
+      state.profileFetchSucceeded = null;
+      state.profileFetchErrorMessage = '';
       applyAuthUI(null);
       return;
     }
 
-    const profile = await ensureProfile(session.user);
+    const profile = await fetchCurrentProfile(session.user.id);
+    await loadData();
+    state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
+    await loadConvocatoriaData(state.selectedMatchId);
+    await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
+
     applyAuthUI({
       id: session.user.id,
       email: session.user.email,
@@ -975,6 +1050,8 @@ async function init() {
       profileId: profile?.id || session.user.id,
       playerId: profile?.player_id ? String(profile.player_id) : null
     });
+    renderAll();
+    renderAuthDebugPanel();
   });
 
   await syncSession();
