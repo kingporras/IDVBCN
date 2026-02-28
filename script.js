@@ -7,6 +7,8 @@ const state = {
   sessionUser: null,
   currentProfile: null,
   isAdmin: false,
+  profileFetchSucceeded: null,
+  profileFetchErrorMessage: '',
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -271,6 +273,8 @@ async function fetchCurrentProfile(userId) {
   if (!supabaseClient || !userId) {
     state.currentProfile = null;
     state.isAdmin = false;
+    state.profileFetchSucceeded = false;
+    state.profileFetchErrorMessage = 'Sesión inválida o cliente no disponible';
     return null;
   }
 
@@ -283,15 +287,50 @@ async function fetchCurrentProfile(userId) {
   if (error) {
     state.currentProfile = null;
     state.isAdmin = false;
+    state.profileFetchSucceeded = false;
+    state.profileFetchErrorMessage = error.message || 'Error desconocido';
     setProfileBanner('No puedo leer tu perfil (RLS?)');
-    console.error('[profile] No puedo leer tu perfil (RLS?)', error.message);
+    console.error('[profile] No puedo leer tu perfil (RLS?)', error);
     return null;
   }
 
   setProfileBanner('');
   state.currentProfile = profile;
   state.isAdmin = profile.role === 'admin';
+  state.profileFetchSucceeded = true;
+  state.profileFetchErrorMessage = '';
   return profile;
+}
+
+
+function renderAuthDebugPanel() {
+  const app = $('app');
+  if (!app) return;
+
+  let panel = $('authDebugPanel');
+  if (!state.sessionUser) {
+    if (panel) panel.classList.add('hidden');
+    return;
+  }
+
+  if (!panel) {
+    panel = document.createElement('section');
+    panel.id = 'authDebugPanel';
+    panel.className = 'card';
+    panel.style.cssText = 'margin:0 0 .75rem 0;font-size:.82rem;background:#eef7ff;border:1px solid #cfe6ff;';
+    app.prepend(panel);
+  }
+
+  panel.classList.remove('hidden');
+  panel.innerHTML = [
+    '<strong>Debug Auth/Profile</strong>',
+    `<div>session.user.id: ${state.sessionUser.id || '-'}</div>`,
+    `<div>session.user.email: ${state.sessionUser.email || '-'}</div>`,
+    `<div>profile fetch ok: ${state.profileFetchSucceeded === null ? '-' : String(state.profileFetchSucceeded)}</div>`,
+    `<div>profile.role: ${state.currentProfile?.role || '-'}</div>`,
+    `<div>state.isAdmin: ${String(state.isAdmin)}</div>`,
+    `<div>profile fetch error: ${state.profileFetchErrorMessage || '-'}</div>`
+  ].join('');
 }
 
 function route() {
@@ -722,7 +761,10 @@ function applyAuthUI(sessionUser) {
   $('app').classList.toggle('hidden', !loggedIn);
 
   if (!loggedIn) {
+    state.profileFetchSucceeded = null;
+    state.profileFetchErrorMessage = '';
     setProfileBanner('');
+    renderAuthDebugPanel();
     window.location.hash = '#home';
     return;
   }
@@ -752,6 +794,8 @@ async function syncSession() {
   if (!user) {
     state.currentProfile = null;
     state.isAdmin = false;
+    state.profileFetchSucceeded = null;
+    state.profileFetchErrorMessage = '';
     applyAuthUI(null);
     return;
   }
@@ -770,6 +814,8 @@ async function syncSession() {
     profileId: profile?.id || user.id,
     playerId: profile?.player_id ? String(profile.player_id) : null
   });
+  renderAll();
+  renderAuthDebugPanel();
 }
 
 function bindEvents() {
@@ -984,6 +1030,8 @@ async function init() {
     if (!session?.user) {
       state.currentProfile = null;
       state.isAdmin = false;
+      state.profileFetchSucceeded = null;
+      state.profileFetchErrorMessage = '';
       applyAuthUI(null);
       return;
     }
@@ -1002,6 +1050,8 @@ async function init() {
       profileId: profile?.id || session.user.id,
       playerId: profile?.player_id ? String(profile.player_id) : null
     });
+    renderAll();
+    renderAuthDebugPanel();
   });
 
   await syncSession();
