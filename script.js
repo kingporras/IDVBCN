@@ -1,42 +1,3 @@
-const FALLBACK_DATA = {
-  players: [
-    { id: 'p1', name: 'plans', position: 'DEF', dorsal: 1, stats: { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, mvps: 0 } },
-    { id: 'p2', name: 'pomares', position: 'DEF', dorsal: 2, stats: { goles: 1, asistencias: 1, amarillas: 1, rojas: 0, mvps: 0 } },
-    { id: 'p3', name: 'porras', position: 'DEL', dorsal: 4, stats: { goles: 8, asistencias: 2, amarillas: 2, rojas: 0, mvps: 3 } },
-    { id: 'p4', name: 'cuco', position: 'DEF', dorsal: 5, stats: { goles: 0, asistencias: 1, amarillas: 1, rojas: 0, mvps: 0 } },
-    { id: 'p5', name: 'altimira', position: 'MED', dorsal: 7, stats: { goles: 2, asistencias: 3, amarillas: 1, rojas: 0, mvps: 1 } },
-    { id: 'p6', name: 'alex', position: 'DEL', dorsal: 9, stats: { goles: 5, asistencias: 1, amarillas: 0, rojas: 0, mvps: 2 } },
-    { id: 'p7', name: 'dani', position: 'MED', dorsal: 10, stats: { goles: 4, asistencias: 2, amarillas: 1, rojas: 0, mvps: 1 } },
-    { id: 'p8', name: 'delrio', position: 'DEL', dorsal: 11, stats: { goles: 3, asistencias: 1, amarillas: 0, rojas: 0, mvps: 1 } },
-    { id: 'p9', name: 'peke', position: 'MED', dorsal: 17, stats: { goles: 1, asistencias: 2, amarillas: 1, rojas: 0, mvps: 0 } },
-    { id: 'p10', name: 'sergio', position: 'DEF', dorsal: 19, stats: { goles: 1, asistencias: 1, amarillas: 1, rojas: 0, mvps: 0 } },
-    { id: 'p11', name: 'rony', position: 'DEL', dorsal: 23, stats: { goles: 2, asistencias: 1, amarillas: 0, rojas: 0, mvps: 0 } },
-    { id: 'p12', name: 'malle', position: 'POR', dorsal: 30, stats: { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, mvps: 1 } },
-    { id: 'p13', name: 'edgar', position: 'DEF', dorsal: 44, stats: { goles: 0, asistencias: 1, amarillas: 0, rojas: 0, mvps: 0 } },
-    { id: 'p14', name: 'joeliko', position: 'MED', dorsal: 69, stats: { goles: 1, asistencias: 1, amarillas: 1, rojas: 0, mvps: 0 } },
-    { id: 'p15', name: 'mordillo', position: 'POR', dorsal: 99, stats: { goles: 0, asistencias: 0, amarillas: 0, rojas: 0, mvps: 0 } }
-  ],
-  matches: [
-    { id: 'm1', date: '2026-02-19T22:05:00', rival: 'ONSE FC', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm2', date: '2026-02-26T20:15:00', rival: 'Nacional', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm3', date: '2026-03-05T22:05:00', rival: 'Sparta', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm4', date: '2026-03-12T21:10:00', rival: 'Hulk City', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm5', date: '2026-03-19T23:00:00', rival: 'Changos Camperos', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm6', date: '2026-03-26T21:10:00', rival: 'Paella', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm7', date: '2026-04-09T20:15:00', rival: 'MINGORRUBIO BALOMPIÉ', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm8', date: '2026-04-16T22:05:00', rival: 'SMASH BROTHERS', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm9', date: '2026-04-30T21:10:00', rival: 'ONSE FC', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm10', date: '2026-05-07T22:05:00', rival: 'Nacional', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm11', date: '2026-05-14T21:10:00', rival: 'Sparta', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm12', date: '2026-05-21T20:15:00', rival: 'Hulk City', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm13', date: '2026-05-28T23:00:00', rival: 'Changos Camperos', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm14', date: '2026-06-04T20:15:00', rival: 'Paella', home: true, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm15', date: '2026-06-11T20:15:00', rival: 'MINGORRUBIO BALOMPIÉ', home: false, venue: 'Velòdrom F7', result: '-' },
-    { id: 'm16', date: '2026-06-18T21:10:00', rival: 'SMASH BROTHERS', home: true, venue: 'Velòdrom F7', result: '-' }
-  ],
-  lineup: ['mordillo', 'pomares', 'cuco', 'altimira', 'dani', 'alex', 'porras']
-};
-
 const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
@@ -195,35 +156,31 @@ async function saveAttendance(matchId, userId, status) {
 }
 
 async function loadData() {
-  const fallbackData = JSON.parse(JSON.stringify(FALLBACK_DATA));
+  const emptyData = { players: [], matches: [], lineup: [] };
 
-  if (supabaseClient) {
-    try {
-      const [playersRes, matchesRes] = await Promise.all([
-        supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
-        supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
-      ]);
-
-      if (!playersRes.error && !matchesRes.error && Array.isArray(playersRes.data) && Array.isArray(matchesRes.data)) {
-        state.data = {
-          ...fallbackData,
-          players: playersRes.data.map(mapPlayerRow),
-          matches: matchesRes.data.map(mapMatchRow)
-        };
-        return;
-      }
-    } catch {
-      // Fallbacks handled below.
-    }
+  if (!supabaseClient) {
+    state.data = emptyData;
+    return;
   }
 
   try {
-    const res = await fetch('data.json');
-    if (!res.ok) throw new Error('no data');
-    state.data = await res.json();
-    return;
-  } catch {
-    state.data = fallbackData;
+    const [playersRes, matchesRes] = await Promise.all([
+      supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
+      supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
+    ]);
+
+    if (playersRes.error) throw playersRes.error;
+    if (matchesRes.error) throw matchesRes.error;
+
+    state.data = {
+      players: (playersRes.data || []).map(mapPlayerRow),
+      matches: (matchesRes.data || []).map(mapMatchRow),
+      lineup: []
+    };
+  } catch (error) {
+    console.error(error);
+    state.data = emptyData;
+    showToast(error.message || 'Error cargando datos desde Supabase', 'error');
   }
 }
 
@@ -500,12 +457,57 @@ async function loadMvpData(selectedMatchId) {
   });
 }
 
-async function saveMvpVote(matchId, votedPlayerId) {
-  const payload = {
-    match_id: matchId,
+
+async function resolveMvpPayload(matchId, playerId) {
+  const { data: match, error: matchError } = await supabaseClient
+    .from('matches')
+    .select('id')
+    .eq('id', matchId)
+    .maybeSingle();
+
+  if (matchError) {
+    console.error(matchError);
+    showToast(matchError.message || 'Error verificando partido MVP', 'error');
+    return null;
+  }
+
+  if (!match?.id || !isUuid(match.id)) {
+    const error = { message: 'Partido MVP inválido (UUID requerido)', code: 'BAD_MATCH_UUID', matchId };
+    console.error(error);
+    showToast(error.message, 'error');
+    return null;
+  }
+
+  const { data: player, error: playerError } = await supabaseClient
+    .from('players')
+    .select('id')
+    .eq('id', playerId)
+    .maybeSingle();
+
+  if (playerError) {
+    console.error(playerError);
+    showToast(playerError.message || 'Error verificando jugador MVP', 'error');
+    return null;
+  }
+
+  if (!player?.id || !isUuid(player.id)) {
+    const error = { message: 'Jugador MVP inválido (UUID requerido)', code: 'BAD_PLAYER_UUID', playerId };
+    console.error(error);
+    showToast(error.message, 'error');
+    return null;
+  }
+
+  return {
+    match_id: match.id,
     voter_user_id: state.sessionUser.id,
-    voted_player_id: votedPlayerId
+    voted_player_id: player.id
   };
+}
+
+async function saveMvpVote(matchId, votedPlayerId) {
+  const payload = await resolveMvpPayload(matchId, votedPlayerId);
+  if (!payload) return false;
+
   state.mvp.lastVotePayload = JSON.stringify(payload);
   console.log('MVP vote payload:', payload);
 
