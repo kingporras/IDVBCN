@@ -43,7 +43,16 @@ const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
-const state = { data: null, sessionUser: null, selectedMatchId: null };
+const state = {
+  data: null,
+  sessionUser: null,
+  selectedMatchId: null,
+  convocatoria: {
+    matchId: null,
+    attendanceByUserId: {},
+    profileIdByPlayerId: {}
+  }
+};
 
 const $ = (id) => document.getElementById(id);
 
@@ -73,6 +82,71 @@ function mapMatchRow(row) {
     venue: row.venue || 'Velòdrom F7',
     result: row.result || '-'
   };
+}
+
+function normalizeName(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeAttendanceStatus(status) {
+  const value = String(status || '').toLowerCase();
+  if (value === 'yes' || value === 'confirmado') return 'confirmado';
+  if (value === 'no') return 'no';
+  return 'pendiente';
+}
+
+function getConvocatoriaStatusForPlayer(playerId) {
+  const userId = state.convocatoria.profileIdByPlayerId[playerId];
+  if (!userId) return 'pendiente';
+  return normalizeAttendanceStatus(state.convocatoria.attendanceByUserId[userId]);
+}
+
+async function loadConvocatoriaData(matchId) {
+  state.convocatoria.matchId = matchId;
+  state.convocatoria.attendanceByUserId = {};
+  state.convocatoria.profileIdByPlayerId = {};
+
+  if (!supabaseClient || !matchId) return;
+
+  const players = getPlayers();
+  const { data: profiles, error: profilesError } = await supabaseClient
+    .from('profiles')
+    .select('id, display_name, role');
+
+  if (!profilesError && Array.isArray(profiles)) {
+    const profileIdByName = {};
+    profiles.forEach((profile) => {
+      const key = normalizeName(profile.display_name);
+      if (key && !profileIdByName[key]) profileIdByName[key] = profile.id;
+    });
+
+    players.forEach((player) => {
+      const matchedId = profileIdByName[normalizeName(player.name)];
+      if (matchedId) {
+        state.convocatoria.profileIdByPlayerId[player.id] = matchedId;
+      }
+    });
+  }
+
+  const { data: attendanceRows, error: attendanceError } = await supabaseClient
+    .from('attendance')
+    .select('user_id,status')
+    .eq('match_id', matchId);
+
+  if (attendanceError) {
+    console.warn('No se pudo cargar asistencia:', attendanceError.message);
+    return;
+  }
+
+  (attendanceRows || []).forEach((row) => {
+    if (row.user_id) {
+      state.convocatoria.attendanceByUserId[row.user_id] = row.status;
+    }
+  });
 }
 
 async function loadData() {
@@ -134,22 +208,6 @@ function getMatches() {
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
-function getAttendanceMap(matchId) {
-  const saved = readJSON('attendanceByMatch', {});
-  const base = state.data.attendanceByMatch[matchId] || {};
-  const merged = { ...base, ...(saved[matchId] || {}) };
-  const all = {};
-  getPlayers().forEach((p) => {
-    all[p.id] = merged[p.id] || 'pendiente';
-  });
-  return all;
-}
-
-function setAttendance(matchId, playerId, status) {
-  const all = readJSON('attendanceByMatch', {});
-  all[matchId] = { ...(all[matchId] || {}), [playerId]: status };
-  writeJSON('attendanceByMatch', all);
-}
 
 function getUpcomingMatch() {
   const now = new Date();
@@ -248,7 +306,12 @@ function renderConvocatoria() {
   $('matchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('matchSelector').value = state.selectedMatchId;
 
-  const attendance = getAttendanceMap(state.selectedMatchId);
+  if (state.convocatoria.matchId !== state.selectedMatchId) {
+    $('attendanceList').innerHTML = '<li>Cargando asistencia...</li>';
+    loadConvocatoriaData(state.selectedMatchId).then(() => renderConvocatoria());
+    return;
+  }
+
   const players = getPlayers();
   const isAdmin = state.sessionUser.role === 'admin';
 
@@ -257,18 +320,23 @@ function renderConvocatoria() {
   let bajas = 0;
 
   $('attendanceList').innerHTML = players.map((p) => {
-    const st = attendance[p.id];
+    const userId = state.convocatoria.profileIdByPlayerId[p.id];
+    const st = getConvocatoriaStatusForPlayer(p.id);
+
     if (st === 'confirmado') confirmados += 1;
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const editable = isAdmin || p.id === state.sessionUser.profileId;
+    const editable = Boolean(userId) && (isAdmin || userId === state.sessionUser.id);
+    const showActions = isAdmin || userId === state.sessionUser.id || !userId;
+    const disabledAttr = editable ? '' : 'disabled';
+
     return `<li>
       <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
-      <div class="att-actions ${editable ? '' : 'hidden'}">
-        <button type="button" data-action="att" data-player="${p.id}" data-status="confirmado">✅</button>
-        <button type="button" data-action="att" data-player="${p.id}" data-status="pendiente">⏳</button>
-        <button type="button" data-action="att" data-player="${p.id}" data-status="no">❌</button>
+      <div class="att-actions ${showActions ? '' : 'hidden'}">
+        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
+        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="pending" ${disabledAttr}>⏳</button>
+        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
       </div>
     </li>`;
   }).join('');
@@ -381,9 +449,8 @@ function showToast(text) {
 function generateConvImage(matchId) {
   const match = getMatches().find((m) => m.id === matchId);
   if (!match) return;
-  const attendance = getAttendanceMap(matchId);
   const players = getPlayers();
-  const confirmed = players.filter((p) => attendance[p.id] === 'confirmado');
+  const confirmed = players.filter((p) => getConvocatoriaStatusForPlayer(p.id) === 'confirmado');
 
   const canvas = document.createElement('canvas');
   canvas.width = 1080;
@@ -510,6 +577,8 @@ async function syncSession() {
 
   const profile = await ensureProfile(user);
   await loadData();
+  state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
+  await loadConvocatoriaData(state.selectedMatchId);
 
   applyAuthUI({
     id: user.id,
@@ -563,23 +632,46 @@ function bindEvents() {
     route();
   });
 
-  $('matchSelector').addEventListener('change', (e) => {
+  $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
+    await loadConvocatoriaData(state.selectedMatchId);
     renderConvocatoria();
   });
 
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', async (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
 
     if (btn.dataset.action === 'att') {
-      const playerId = btn.dataset.player;
+      const userId = btn.dataset.userId;
       const status = btn.dataset.status;
-      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.profileId === playerId;
+      if (!userId) {
+        showToast('Jugador sin perfil vinculado');
+        return;
+      }
+
+      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.id === userId;
       if (!canEdit) return;
-      setAttendance(state.selectedMatchId, playerId, status);
+
+      if (!supabaseClient) {
+        showToast('Supabase no disponible');
+        return;
+      }
+
+      const { error } = await supabaseClient.from('attendance').upsert(
+        { match_id: state.selectedMatchId, user_id: userId, status },
+        { onConflict: 'match_id,user_id' }
+      );
+
+      if (error) {
+        showToast(error.message || 'Error al guardar asistencia');
+        return;
+      }
+
+      await loadConvocatoriaData(state.selectedMatchId);
       renderConvocatoria();
       renderHome();
+      showToast('Asistencia guardada');
     }
 
     if (btn.dataset.action === 'open-match') {
