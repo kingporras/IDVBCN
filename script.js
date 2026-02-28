@@ -39,35 +39,58 @@ const FALLBACK_DATA = {
   lineup: ['mordillo', 'pomares', 'cuco', 'altimira', 'dani', 'alex', 'porras']
 };
 
-const USERS = [
-  { username: 'plans', pin: '1', playerId: 'p1', role: 'player' },
-  { username: 'pomares', pin: '2', playerId: 'p2', role: 'player' },
-  { username: 'porras', pin: '4', playerId: 'p3', role: 'admin' },
-  { username: 'cuco', pin: '5', playerId: 'p4', role: 'player' },
-  { username: 'altimira', pin: '7', playerId: 'p5', role: 'player' },
-  { username: 'alex', pin: '9', playerId: 'p6', role: 'player' },
-  { username: 'dani', pin: '10', playerId: 'p7', role: 'player' },
-  { username: 'delrio', pin: '11', playerId: 'p8', role: 'player' },
-  { username: 'peke', pin: '17', playerId: 'p9', role: 'player' },
-  { username: 'sergio', pin: '19', playerId: 'p10', role: 'player' },
-  { username: 'rony', pin: '23', playerId: 'p11', role: 'player' },
-  { username: 'malle', pin: '30', playerId: 'p12', role: 'player' },
-  { username: 'edgar', pin: '44', playerId: 'p13', role: 'player' },
-  { username: 'joeliko', pin: '69', playerId: 'p14', role: 'player' },
-  { username: 'mordillo', pin: '99', playerId: 'p15', role: 'player' }
-];
+const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 const state = { data: null, sessionUser: null, selectedMatchId: null };
 
 const $ = (id) => document.getElementById(id);
 
+function mapPlayerRow(row) {
+  const stats = row.stats || {};
+  return {
+    id: String(row.id),
+    name: row.name || row.display_name || 'Jugador',
+    position: row.position || 'N/D',
+    dorsal: Number(row.number ?? row.dorsal ?? 0),
+    stats: {
+      goles: Number(row.goles ?? row.goals ?? stats.goles ?? stats.goals ?? 0),
+      asistencias: Number(row.asistencias ?? row.assists ?? stats.asistencias ?? stats.assists ?? 0),
+      amarillas: Number(row.amarillas ?? row.yellow_cards ?? stats.amarillas ?? stats.yellow_cards ?? 0),
+      rojas: Number(row.rojas ?? row.red_cards ?? stats.rojas ?? stats.red_cards ?? 0),
+      mvps: Number(row.mvps ?? stats.mvps ?? 0)
+    }
+  };
+}
+
+function mapMatchRow(row) {
+  return {
+    id: String(row.id),
+    date: row.date_time || row.date,
+    rival: row.rival || row.opponent || 'Rival',
+    home: row.home ?? row.is_home ?? true,
+    venue: row.venue || 'Velòdrom F7',
+    result: row.result || '-'
+  };
+}
+
 async function loadData() {
-  try {
-    const res = await fetch('./data.json');
-    if (!res.ok) throw new Error('no data');
-    state.data = await res.json();
-  } catch {
-    state.data = FALLBACK_DATA;
+  state.data = JSON.parse(JSON.stringify(FALLBACK_DATA));
+
+  if (!supabaseClient) return;
+
+  const [playersRes, matchesRes] = await Promise.all([
+    supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
+    supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
+  ]);
+
+  if (!playersRes.error && Array.isArray(playersRes.data)) {
+    state.data.players = playersRes.data.map(mapPlayerRow);
+  }
+
+  if (!matchesRes.error && Array.isArray(matchesRes.data)) {
+    state.data.matches = matchesRes.data.map(mapMatchRow);
   }
 }
 
@@ -84,9 +107,6 @@ function writeJSON(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
-function getSessionUser() {
-  return readJSON('sessionUser', null);
-}
 
 function getPlayers() {
   const override = readJSON('playerStatsOverride', {});
@@ -154,7 +174,11 @@ function getVotesTotals() {
 }
 
 function getCurrentPlayer() {
-  return getPlayers().find((p) => p.id === state.sessionUser.playerId);
+  if (!state.sessionUser) return null;
+  const byProfile = getPlayers().find((p) => p.id === state.sessionUser.profileId);
+  if (byProfile) return byProfile;
+  const display = (state.sessionUser.displayName || '').toLowerCase();
+  return getPlayers().find((p) => p.name.toLowerCase() === display) || null;
 }
 
 function route() {
@@ -167,10 +191,19 @@ function route() {
 }
 
 function renderHome() {
-  const me = getCurrentPlayer();
+  const players = getPlayers();
+  if (!players.length) {
+    $('myStats').innerHTML = '<p>Sin jugadores cargados todavía.</p>';
+    $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
+    $('lineupList').innerHTML = '<span>Sin alineación disponible.</span>';
+    $('nextMatchText').textContent = 'Sin partido próximo';
+    return;
+  }
+
+  const me = getCurrentPlayer() || players[0];
   const nextMatch = getUpcomingMatch();
   const votes = getVotesTotals();
-  const ranking = getPlayers()
+  const ranking = players
     .map((p) => ({ ...p, totalMvp: p.stats.mvps + (votes[p.id] || 0) }))
     .sort((a, b) => b.totalMvp - a.totalMvp);
 
@@ -180,14 +213,23 @@ function renderHome() {
   ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
 
   $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
-  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('');
-  $('lineupList').innerHTML = state.data.lineup.map((p) => `<span>${p}</span>`).join('');
+  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
+  $('lineupList').innerHTML = (state.data.lineup || []).map((p) => `<span>${p}</span>`).join('') || '<span>Sin alineación disponible.</span>';
 }
 
 function renderConvocatoria() {
   const matches = getMatches();
   const upcoming = getUpcomingMatch();
   if (!state.selectedMatchId) state.selectedMatchId = upcoming?.id || matches[0]?.id;
+
+  if (!matches.length) {
+    $('matchSelector').innerHTML = '';
+    $('attendanceList').innerHTML = '<li>No hay partidos cargados todavía.</li>';
+    $('countConfirmados').textContent = 'Confirmados: 0';
+    $('countPendientes').textContent = 'Pendientes: 0';
+    $('countBajas').textContent = 'Bajas: 0';
+    return;
+  }
 
   $('matchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('matchSelector').value = state.selectedMatchId;
@@ -206,7 +248,7 @@ function renderConvocatoria() {
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const editable = isAdmin || p.id === state.sessionUser.playerId;
+    const editable = isAdmin || p.id === state.sessionUser.profileId;
     return `<li>
       <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
       <div class="att-actions ${editable ? '' : 'hidden'}">
@@ -223,7 +265,13 @@ function renderConvocatoria() {
 }
 
 function renderCalendario() {
-  $('calendarList').innerHTML = getMatches().map((m) => `
+  const matches = getMatches();
+  if (!matches.length) {
+    $('calendarList').innerHTML = '<li>No hay partidos cargados todavía.</li>';
+    return;
+  }
+
+  $('calendarList').innerHTML = matches.map((m) => `
     <li>
       <button type="button" data-action="open-match" data-id="${m.id}">
         ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${m.result}
@@ -254,15 +302,23 @@ function renderClub() {
     ['PJ', PJ], ['PG', PG], ['PE', PE], ['PP', PP], ['GF', GF], ['GC', GC]
   ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('');
 
-  $('squadList').innerHTML = getPlayers()
-    .map((p) => `<li><strong>#${p.dorsal} ${p.name}</strong> (${p.position}) · G:${p.stats.goles} A:${p.stats.asistencias} MVP:${p.stats.mvps}</li>`)
-    .join('');
+  const players = getPlayers();
+  $('squadList').innerHTML = players.length
+    ? players.map((p) => `<li><strong>#${p.dorsal} ${p.name}</strong> (${p.position}) · G:${p.stats.goles} A:${p.stats.asistencias} MVP:${p.stats.mvps}</li>`).join('')
+    : '<li>No hay jugadores cargados todavía.</li>';
 }
 
 function renderMvp() {
   const matches = getMatches();
   const players = getPlayers();
   const upcoming = getUpcomingMatch();
+
+  if (!matches.length || !players.length) {
+    $('mvpMatchSelector').innerHTML = '';
+    $('mvpPlayerSelector').innerHTML = '';
+    $('mvpRankingList').innerHTML = '<li>Sin datos para MVP todavía.</li>';
+    return;
+  }
 
   $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('mvpPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -291,7 +347,7 @@ function renderAdmin() {
 }
 
 function renderAll() {
-  $('welcomeText').textContent = `Hola, ${state.sessionUser.username}`;
+  $('welcomeText').textContent = `Hola, ${state.sessionUser.displayName}`;
   renderHome();
   renderConvocatoria();
   renderCalendario();
@@ -369,29 +425,121 @@ function openMatchModal(matchId) {
   $('matchModal').showModal();
 }
 
+async function ensureProfile(user) {
+  if (!supabaseClient || !user) return null;
+
+  const { data: existing, error: selectError } = await supabaseClient
+    .from('profiles')
+    .select('id, display_name, role')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (selectError) {
+    console.warn('No se pudo leer perfil:', selectError.message);
+  }
+
+  if (existing) return existing;
+
+  const displayName = (user.email || 'jugador').split('@')[0];
+  const profilePayload = { id: user.id, display_name: displayName, role: 'player' };
+  const { data: inserted, error: insertError } = await supabaseClient
+    .from('profiles')
+    .insert(profilePayload)
+    .select('id, display_name, role')
+    .single();
+
+  if (insertError) {
+    console.warn('No se pudo crear perfil:', insertError.message);
+    return profilePayload;
+  }
+
+  return inserted;
+}
+
+function applyAuthUI(sessionUser) {
+  state.sessionUser = sessionUser;
+  const loggedIn = Boolean(sessionUser);
+  $('loginScreen').classList.toggle('hidden', loggedIn);
+  $('app').classList.toggle('hidden', !loggedIn);
+
+  if (!loggedIn) {
+    window.location.hash = '#home';
+    return;
+  }
+
+  if (!window.location.hash) {
+    window.location.hash = '#home';
+  }
+
+  renderAll();
+}
+
+async function syncSession() {
+  if (!supabaseClient) {
+    $('loginError').textContent = 'No se pudo inicializar Supabase.';
+    applyAuthUI(null);
+    return;
+  }
+
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error) {
+    $('loginError').textContent = 'Error al recuperar sesión.';
+    applyAuthUI(null);
+    return;
+  }
+
+  const user = data.session?.user;
+  if (!user) {
+    applyAuthUI(null);
+    return;
+  }
+
+  const profile = await ensureProfile(user);
+  await loadData();
+
+  applyAuthUI({
+    id: user.id,
+    email: user.email,
+    displayName: profile?.display_name || (user.email || 'jugador').split('@')[0],
+    role: profile?.role || 'player',
+    profileId: profile?.id || user.id
+  });
+}
+
 function bindEvents() {
-  $('loginForm').addEventListener('submit', (e) => {
+  $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const username = $('username').value.trim().toLowerCase();
-    const pin = $('pin').value.trim();
-    const found = USERS.find((u) => u.username === username && u.pin === pin);
-    if (!found) {
-      $('loginError').textContent = 'Credenciales incorrectas.';
+    $('loginError').textContent = '';
+
+    const email = $('email').value.trim();
+    const password = $('password').value.trim();
+
+    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    if (error) {
+      $('loginError').textContent = error.message || 'Credenciales incorrectas.';
       return;
     }
-    writeJSON('sessionUser', found);
-    state.sessionUser = found;
-    $('loginScreen').classList.add('hidden');
-    $('app').classList.remove('hidden');
-    renderAll();
+
+    await syncSession();
   });
 
-  $('logoutBtn').addEventListener('click', () => {
-    localStorage.removeItem('sessionUser');
-    state.sessionUser = null;
-    $('app').classList.add('hidden');
-    $('loginScreen').classList.remove('hidden');
-    window.location.hash = '#home';
+  $('signupBtn').addEventListener('click', async () => {
+    $('loginError').textContent = '';
+    const email = $('email').value.trim();
+    const password = $('password').value.trim();
+
+    const { error } = await supabaseClient.auth.signUp({ email, password });
+    if (error) {
+      $('loginError').textContent = error.message || 'No se pudo crear la cuenta.';
+      return;
+    }
+
+    showToast('Cuenta creada. Revisa tu email si hay confirmación activa.');
+  });
+
+  $('logoutBtn').addEventListener('click', async () => {
+    await supabaseClient.auth.signOut();
+    applyAuthUI(null);
   });
 
   $('goConfirmBtn').addEventListener('click', () => {
@@ -413,7 +561,7 @@ function bindEvents() {
     if (btn.dataset.action === 'att') {
       const playerId = btn.dataset.player;
       const status = btn.dataset.status;
-      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.playerId === playerId;
+      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.profileId === playerId;
       if (!canEdit) return;
       setAttendance(state.selectedMatchId, playerId, status);
       renderConvocatoria();
@@ -431,7 +579,7 @@ function bindEvents() {
   $('voteBtn').addEventListener('click', () => {
     const matchId = $('mvpMatchSelector').value;
     const playerId = $('mvpPlayerSelector').value;
-    const key = `mvpVote:${matchId}:${state.sessionUser.username}`;
+    const key = `mvpVote:${matchId}:${state.sessionUser.id}`;
     if (localStorage.getItem(key)) {
       $('voteMessage').textContent = 'Ya votaste este partido.';
       return;
@@ -495,17 +643,28 @@ async function init() {
   await loadData();
   bindEvents();
 
-  const session = getSessionUser();
-  if (!session) {
-    $('loginScreen').classList.remove('hidden');
-    $('app').classList.add('hidden');
+  if (!supabaseClient) {
+    $('loginError').textContent = 'No se pudo cargar Supabase SDK.';
     return;
   }
 
-  state.sessionUser = session;
-  $('loginScreen').classList.add('hidden');
-  $('app').classList.remove('hidden');
-  renderAll();
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    if (!session?.user) {
+      applyAuthUI(null);
+      return;
+    }
+
+    const profile = await ensureProfile(session.user);
+    applyAuthUI({
+      id: session.user.id,
+      email: session.user.email,
+      displayName: profile?.display_name || (session.user.email || 'jugador').split('@')[0],
+      role: profile?.role || 'player',
+      profileId: profile?.id || session.user.id
+    });
+  });
+
+  await syncSession();
 }
 
 init();

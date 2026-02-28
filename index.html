@@ -14,12 +14,13 @@
       <img src="escudo.png" alt="Escudo del club" class="logo" />
       <h1>EL INTER DE VERDUN</h1>
       <p>Inicia sesión para entrar a la app</p>
-      <label for="username">Nombre</label>
-      <input id="username" required />
-      <label for="pin">Contraseña (dorsal)</label>
-      <input id="pin" type="password" required inputmode="numeric" />
+      <label for="email">Email</label>
+      <input id="email" type="email" required autocomplete="email" />
+      <label for="password">Contraseña</label>
+      <input id="password" type="password" required autocomplete="current-password" />
       <button type="submit">Entrar</button>
-      <small>Demo: porras/4 (admin) · alex/9 · dani/10</small>
+      <button id="signupBtn" type="button" class="ghost">Crear cuenta (test admin)</button>
+      <small>Usa tu cuenta de Supabase Auth (email + contraseña).</small>
       <p id="loginError" class="error"></p>
     </form>
   </div>
@@ -163,6 +164,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
