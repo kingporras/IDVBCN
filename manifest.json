@@ -8,9 +8,9 @@
   "theme_color": "#0288d1",
   "icons": [
     {
-      "src": "escudo.svg",
-      "type": "image/svg+xml",
-      "sizes": "any"
+      "src": "escudo.png",
+      "type": "image/png",
+      "sizes": "192x192"
     }
   ]
 }
