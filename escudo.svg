@@ -1,25 +1,46 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Escudo Inter de Verdun">
   <defs>
     <style>
-      .gold{fill:#e8cc95;stroke:#9c7d2f;stroke-width:6}
-      .blue{fill:#8ec1e6;stroke:#9c7d2f;stroke-width:6}
-      .txt{font-family:Georgia,serif;font-weight:700;letter-spacing:2px;fill:#e8cc95;stroke:#9c7d2f;stroke-width:2}
+      .gold-fill { fill: #e6ca8f; }
+      .gold-stroke { stroke: #9f8134; }
+      .blue-fill { fill: #8bbfe3; }
+      .txt { font-family: 'Georgia', 'Times New Roman', serif; font-weight: 700; letter-spacing: 2px; fill: #e6ca8f; stroke: #9f8134; stroke-width: 2; }
     </style>
-    <path id="topArc" d="M180,515 A332,332 0 0 1 844,515"/>
+    <path id="arcTop" d="M 178 510 A 334 334 0 0 1 846 510"/>
   </defs>
-  <rect width="1024" height="1024" fill="#ececec"/>
-  <circle cx="512" cy="512" r="420" class="gold"/>
-  <circle cx="512" cy="512" r="388" class="blue"/>
-  <circle cx="512" cy="512" r="286" class="gold"/>
-  <circle cx="512" cy="512" r="268" fill="#f6f6f6" stroke="#9c7d2f" stroke-width="4"/>
-  <path d="M240 700 L360 820 L744 436 L624 316 Z" class="gold"/>
-  <polygon points="268,713 281,745 316,748 289,768 298,800 268,782 238,800 247,768 220,748 255,745" fill="#8ec1e6" stroke="#9c7d2f" stroke-width="5"/>
-  <path d="M432 470 C470 390 575 370 653 417 C704 449 726 523 699 584 C661 671 546 701 472 649 C408 603 393 538 432 470 Z" fill="#e8cc95" stroke="#9c7d2f" stroke-width="8"/>
-  <path d="M567 522 L760 604 L700 634 L549 563 Z" fill="#e8cc95" stroke="#9c7d2f" stroke-width="8"/>
-  <path d="M790 448 C770 470 770 550 790 575" fill="none" stroke="#9c7d2f" stroke-width="8"/>
-  <path d="M824 452 C804 478 805 546 824 572" fill="none" stroke="#9c7d2f" stroke-width="8"/>
-  <text font-size="86" class="txt">
-    <textPath href="#topArc" startOffset="7%">INTER DE VERDUN</textPath>
+
+  <!-- aro exterior -->
+  <circle cx="512" cy="512" r="424" class="gold-fill gold-stroke" stroke-width="8"/>
+  <circle cx="512" cy="512" r="395" class="blue-fill gold-stroke" stroke-width="8"/>
+
+  <!-- aro interior -->
+  <circle cx="512" cy="512" r="292" class="gold-fill gold-stroke" stroke-width="8"/>
+  <circle cx="512" cy="512" r="268" fill="#f5f7f9" class="gold-stroke" stroke-width="6"/>
+
+  <!-- banda diagonal -->
+  <path d="M 258 704 L 352 798 L 742 408 L 648 314 Z" class="gold-fill gold-stroke" stroke-width="8"/>
+
+  <!-- estrella -->
+  <path d="M 272 737 L 282 760 L 307 762 L 288 778 L 294 802 L 272 789 L 250 802 L 256 778 L 237 762 L 262 760 Z"
+        class="blue-fill gold-stroke" stroke-width="5"/>
+
+  <!-- cabeza simplificada -->
+  <path d="M 446 455 C 482 388 575 372 646 413 C 702 446 728 518 706 583 C 674 670 558 704 478 656 C 414 618 404 533 446 455 Z"
+        class="gold-fill gold-stroke" stroke-width="8"/>
+  <path d="M 460 444 C 500 416 563 410 620 434 C 585 428 546 438 517 462 C 554 454 592 464 621 488 C 577 480 537 496 511 530 C 498 570 509 610 546 646 C 482 621 445 560 452 500 C 456 474 463 456 460 444 Z"
+        fill="#f5f7f9" fill-opacity="0.35"/>
+
+  <!-- puro -->
+  <path d="M 564 543 L 760 620 L 700 650 L 548 586 Z" class="gold-fill gold-stroke" stroke-width="8"/>
+  <ellipse cx="768" cy="620" rx="26" ry="14" class="gold-fill gold-stroke" stroke-width="6"/>
+
+  <!-- humo -->
+  <path d="M 792 454 C 770 479 770 553 792 578" fill="none" class="gold-stroke" stroke-width="8" stroke-linecap="round"/>
+  <path d="M 826 458 C 805 484 804 549 825 574" fill="none" class="gold-stroke" stroke-width="8" stroke-linecap="round"/>
+
+  <!-- texto -->
+  <text font-size="84" class="txt">
+    <textPath href="#arcTop" startOffset="8%">INTER DE VERDUN</textPath>
   </text>
-  <text x="512" y="830" text-anchor="middle" class="txt" font-size="72">Since 2023</text>
+  <text x="512" y="828" text-anchor="middle" class="txt" font-size="66">Since 2023</text>
 </svg>

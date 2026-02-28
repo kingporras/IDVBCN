@@ -34,7 +34,6 @@ const FALLBACK_DATA = {
     { id: 'm15', date: '2026-06-11T20:15:00', rival: 'MINGORRUBIO BALOMPIÉ', home: false, venue: 'Velòdrom F7', result: '-' },
     { id: 'm16', date: '2026-06-18T21:10:00', rival: 'SMASH BROTHERS', home: true, venue: 'Velòdrom F7', result: '-' }
   ],
-  votesByMatch: {},
   lineup: ['mordillo', 'pomares', 'cuco', 'altimira', 'dani', 'alex', 'porras']
 };
 
@@ -51,6 +50,12 @@ const state = {
     attendanceByUserId: {},
     profileIdByPlayerId: {},
     lastSaveResult: '-'
+  },
+  mvp: {
+    selectedMatchId: null,
+    votesByPlayerForSelected: {},
+    globalTotals: {},
+    lastVotePayload: '-'
   }
 };
 
@@ -273,19 +278,7 @@ function parseResult(result) {
 }
 
 function getVotesTotals() {
-  const totals = {};
-  const fromData = state.data.votesByMatch || {};
-  Object.values(fromData).forEach((votes) => {
-    Object.entries(votes).forEach(([playerId, count]) => {
-      totals[playerId] = (totals[playerId] || 0) + Number(count || 0);
-    });
-  });
-  Object.keys(localStorage).forEach((key) => {
-    if (!key.startsWith('mvpVote:')) return;
-    const playerId = localStorage.getItem(key);
-    if (playerId) totals[playerId] = (totals[playerId] || 0) + 1;
-  });
-  return totals;
+  return state.mvp.globalTotals || {};
 }
 
 function getCurrentPlayer() {
@@ -319,12 +312,12 @@ function renderHome() {
   const nextMatch = getUpcomingMatch();
   const votes = getVotesTotals();
   const ranking = players
-    .map((p) => ({ ...p, totalMvp: p.stats.mvps + (votes[p.id] || 0) }))
+    .map((p) => ({ ...p, totalMvp: (votes[p.id] || 0) }))
     .sort((a, b) => b.totalMvp - a.totalMvp);
 
   $('myStats').innerHTML = [
     ['Goles', me.stats.goles], ['Asist.', me.stats.asistencias], ['Amar.', me.stats.amarillas],
-    ['Rojas', me.stats.rojas], ['MVPs', me.stats.mvps + (votes[me.id] || 0)]
+    ['Rojas', me.stats.rojas], ['MVPs', (votes[me.id] || 0)]
   ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
 
   $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
@@ -479,10 +472,72 @@ function renderClub() {
     : '<li>No hay jugadores cargados todavía.</li>';
 }
 
+
+async function loadMvpData(selectedMatchId) {
+  state.mvp.selectedMatchId = selectedMatchId || state.mvp.selectedMatchId;
+  state.mvp.votesByPlayerForSelected = {};
+  state.mvp.globalTotals = {};
+
+  if (!supabaseClient) return;
+
+  const { data, error } = await supabaseClient
+    .from('mvp_votes')
+    .select('match_id,voter_user_id,voted_player_id');
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || 'Error cargando votos MVP', 'error');
+    return;
+  }
+
+  (data || []).forEach((row) => {
+    const playerId = String(row.voted_player_id || '');
+    if (!playerId) return;
+    state.mvp.globalTotals[playerId] = (state.mvp.globalTotals[playerId] || 0) + 1;
+    if (state.mvp.selectedMatchId && row.match_id === state.mvp.selectedMatchId) {
+      state.mvp.votesByPlayerForSelected[playerId] = (state.mvp.votesByPlayerForSelected[playerId] || 0) + 1;
+    }
+  });
+}
+
+async function saveMvpVote(matchId, votedPlayerId) {
+  const payload = {
+    match_id: matchId,
+    voter_user_id: state.sessionUser.id,
+    voted_player_id: votedPlayerId
+  };
+  state.mvp.lastVotePayload = JSON.stringify(payload);
+  console.log('MVP vote payload:', payload);
+
+  const { error } = await supabaseClient
+    .from('mvp_votes')
+    .upsert(payload, { onConflict: 'match_id,voter_user_id' });
+
+  if (error) {
+    console.error(error);
+    showToast(error.message || 'Error guardando voto MVP', 'error');
+    return false;
+  }
+
+  showToast('Voto registrado', 'success');
+  return true;
+}
+
 function renderMvp() {
-  const matches = getMatches();
-  const players = getPlayers();
-  const upcoming = getUpcomingMatch();
+  const matches = getMatches().filter((m) => isUuid(m.id));
+  const players = getPlayers().filter((p) => isUuid(p.id));
+  const upcoming = matches.find((m) => new Date(m.date) > new Date()) || matches[0];
+
+  if (!matches.length || !players.length) {
+    $('mvpMatchSelector').innerHTML = '';
+    $('mvpPlayerSelector').innerHTML = '';
+    $('mvpRankingList').innerHTML = '<li>Sin datos para MVP todavía.</li>';
+    return;
+  }
+
+  if (!state.mvp.selectedMatchId || !isUuid(state.mvp.selectedMatchId)) {
+    state.mvp.selectedMatchId = upcoming?.id || matches[0].id;
+  }
 
   if (!matches.length || !players.length) {
     $('mvpMatchSelector').innerHTML = '';
@@ -492,15 +547,29 @@ function renderMvp() {
   }
 
   $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  $('mvpMatchSelector').value = state.mvp.selectedMatchId;
   $('mvpPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
-  if (upcoming) $('mvpMatchSelector').value = upcoming.id;
 
-  const votes = getVotesTotals();
+  const votesForSelected = state.mvp.votesByPlayerForSelected || {};
   const ranking = players
-    .map((p) => ({ ...p, total: p.stats.mvps + (votes[p.id] || 0) }))
+    .map((p) => ({ ...p, total: (state.mvp.globalTotals[p.id] || 0), selectedVotes: votesForSelected[p.id] || 0 }))
     .sort((a, b) => b.total - a.total);
 
-  $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span></li>`).join('');
+  $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
+
+  const debug = $('mvpDebug');
+  if (debug && state.sessionUser?.role === 'admin') {
+    debug.classList.remove('hidden');
+    debug.textContent = [
+      '[debug/mvp]',
+      `matchId: ${state.mvp.selectedMatchId || '-'}`,
+      `authUid: ${state.sessionUser.id || '-'}`,
+      `lastVote: ${state.mvp.lastVotePayload || '-'}`
+    ].join('\n');
+  } else if (debug) {
+    debug.classList.add('hidden');
+    debug.textContent = '';
+  }
 }
 
 function renderAdmin() {
@@ -669,6 +738,7 @@ async function syncSession() {
   await loadData();
   state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
   await loadConvocatoriaData(state.selectedMatchId);
+  await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
 
   applyAuthUI({
     id: user.id,
@@ -796,15 +866,35 @@ function bindEvents() {
   $('generateImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId));
   $('adminImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId || getUpcomingMatch()?.id));
 
-  $('voteBtn').addEventListener('click', () => {
+  $('mvpMatchSelector').addEventListener('change', async (e) => {
+    state.mvp.selectedMatchId = e.target.value;
+    await loadMvpData(state.mvp.selectedMatchId);
+    renderMvp();
+  });
+
+  $('voteBtn').addEventListener('click', async () => {
     const matchId = $('mvpMatchSelector').value;
     const playerId = $('mvpPlayerSelector').value;
-    const key = `mvpVote:${matchId}:${state.sessionUser.id}`;
-    if (localStorage.getItem(key)) {
-      $('voteMessage').textContent = 'Ya votaste este partido.';
+
+    if (!isUuid(matchId) || !isUuid(playerId)) {
+      const error = { message: 'match/player id inválido para MVP UUID', code: 'BAD_MVP_IDS', matchId, playerId };
+      console.error(error);
+      showToast(error.message, 'error');
       return;
     }
-    localStorage.setItem(key, playerId);
+
+    if (!supabaseClient) {
+      const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+      console.error(error);
+      showToast(error.message, 'error');
+      return;
+    }
+
+    const ok = await saveMvpVote(matchId, playerId);
+    if (!ok) return;
+
+    state.mvp.selectedMatchId = matchId;
+    await loadMvpData(matchId);
     $('voteMessage').textContent = 'Voto registrado.';
     renderMvp();
     renderHome();
