@@ -9,7 +9,8 @@ self.addEventListener('install', event => {
         'script.js',
         'data.json',
         'manifest.json',
-        'escudo.png'
+        'escudo.svg',
+        'fondo.svg'
       ]);
     })
   );

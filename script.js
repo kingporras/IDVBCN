@@ -94,6 +94,10 @@ function normalizeAttendanceStatus(status) {
   return 'pending';
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
 function getConvocatoriaStatusForPlayer(playerId) {
   const userId = state.convocatoria.profileIdByPlayerId[playerId];
   if (!userId) return 'pending';
@@ -106,6 +110,13 @@ async function loadConvocatoriaData(matchId) {
   state.convocatoria.profileIdByPlayerId = {};
 
   if (!supabaseClient || !matchId) return;
+
+  if (!isUuid(matchId)) {
+    const error = { message: 'matchId no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+    console.error('[attendance] load error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    return;
+  }
 
   const { data: profiles, error: profilesError } = await supabaseClient
     .from('profiles')
@@ -141,13 +152,21 @@ async function loadConvocatoriaData(matchId) {
 }
 
 async function saveAttendance(matchId, userId, status) {
-  console.log('[attendance] saving', { matchId, userId, status });
+  console.log('[attendance] saving', { matchId, userId, status, type: typeof matchId });
 
   if (!supabaseClient) {
     const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
     console.error('[attendance] error', error);
     state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
     showToast('Error guardando asistencia: ' + (error.message || error.code), 'error');
+    return false;
+  }
+
+  if (!isUuid(matchId)) {
+    const error = { message: 'matchId no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    showToast('Error guardando asistencia: ' + error.message, 'error');
     return false;
   }
 
@@ -315,30 +334,54 @@ function renderHome() {
 
 function renderConvocatoria() {
   const matches = getMatches();
-  const upcoming = getUpcomingMatch();
-  if (!state.selectedMatchId) state.selectedMatchId = upcoming?.id || matches[0]?.id;
+  const uuidMatches = matches.filter((m) => isUuid(m.id));
+  const upcoming = uuidMatches.find((m) => new Date(m.date) > new Date()) || uuidMatches[0];
+  if (!state.selectedMatchId || !isUuid(state.selectedMatchId)) state.selectedMatchId = upcoming?.id || uuidMatches[0]?.id || null;
 
-  if (!matches.length) {
+  if (!uuidMatches.length) {
     $('matchSelector').innerHTML = '';
-    $('attendanceList').innerHTML = '<li>No hay partidos cargados todavía.</li>';
+    $('attendanceList').innerHTML = '<li>No hay partidos con UUID de Supabase para Convocatoria.</li>';
     $('countConfirmados').textContent = 'Confirmados: 0';
     $('countPendientes').textContent = 'Pendientes: 0';
     $('countBajas').textContent = 'Bajas: 0';
     return;
   }
 
-  $('matchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  $('matchSelector').innerHTML = uuidMatches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('matchSelector').value = state.selectedMatchId;
+
+  const players = getPlayers();
+  const isAdmin = state.sessionUser.role === 'admin';
+  const authUid = state.sessionUser.id;
+
+  console.log('[attendance] selectedMatchId', state.selectedMatchId, typeof state.selectedMatchId);
+
+  if (!isUuid(state.selectedMatchId)) {
+    $('attendanceList').innerHTML = '<li>Este partido no tiene UUID de Supabase. Convocatoria solo usa public.attendance.</li>';
+    $('countConfirmados').textContent = 'Confirmados: 0';
+    $('countPendientes').textContent = 'Pendientes: 0';
+    $('countBajas').textContent = 'Bajas: 0';
+
+    const debug = $('convocatoriaDebug');
+    if (debug && isAdmin) {
+      debug.classList.remove('hidden');
+      debug.textContent = [
+        '[debug/convocatoria]',
+        `selectedMatchId: ${state.selectedMatchId || '-'}`,
+        `type: ${typeof state.selectedMatchId}`,
+        `authUid: ${authUid || '-'}`,
+        `playerId: ${state.sessionUser.playerId || '-'}`,
+        `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
+      ].join('\n');
+    }
+    return;
+  }
 
   if (state.convocatoria.matchId !== state.selectedMatchId) {
     $('attendanceList').innerHTML = '<li>Cargando asistencia...</li>';
     loadConvocatoriaData(state.selectedMatchId).then(() => renderConvocatoria());
     return;
   }
-
-  const players = getPlayers();
-  const isAdmin = state.sessionUser.role === 'admin';
-  const authUid = state.sessionUser.id;
 
   let confirmados = 0;
   let pendientes = 0;
@@ -357,8 +400,10 @@ function renderConvocatoria() {
     const showActions = isAdmin || isOwnPlayer;
     const disabledAttr = editable ? '' : 'disabled';
 
+    const accountHint = !userId ? '<small>sin cuenta</small>' : '';
+
     return `<li>
-      <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
+      <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span> ${accountHint}
       <div class="att-actions ${showActions ? '' : 'hidden'}">
         <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
         <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>⏳</button>
@@ -377,7 +422,8 @@ function renderConvocatoria() {
       debug.classList.remove('hidden');
       debug.textContent = [
         '[debug/convocatoria]',
-        `matchId: ${state.selectedMatchId || '-'}`,
+        `selectedMatchId: ${state.selectedMatchId || '-'}`,
+        `type: ${typeof state.selectedMatchId}`,
         `authUid: ${authUid || '-'}`,
         `playerId: ${state.sessionUser.playerId || '-'}`,
         `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
@@ -679,6 +725,7 @@ function bindEvents() {
 
   $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
+    console.log('[attendance] match change', state.selectedMatchId, typeof state.selectedMatchId);
     await loadConvocatoriaData(state.selectedMatchId);
     renderConvocatoria();
   });
@@ -689,13 +736,28 @@ function bindEvents() {
 
     if (btn.dataset.action === 'att') {
       const status = btn.dataset.status;
-      const matchId = $('matchSelector').value || state.selectedMatchId;
+      const matchId = $('matchSelector').value;
       const mappedUserId = btn.dataset.userId;
       const isAdmin = state.sessionUser.role === 'admin';
       const userId = isAdmin ? mappedUserId : state.sessionUser.id;
+      console.log('[attendance] click save context', { selectedMatchId: matchId, type: typeof matchId, isAdmin, targetUserId: userId });
 
       if (!matchId) {
         const error = { message: 'Partido no seleccionado', code: 'NO_MATCH' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      if (!isUuid(matchId)) {
+        const error = { message: 'El partido seleccionado no es UUID de Supabase', code: 'BAD_MATCH_ID', matchId };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
+      if (!supabaseClient) {
+        const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
         console.error('[attendance] error', error);
         showToast('Error guardando asistencia: ' + error.message, 'error');
         return;

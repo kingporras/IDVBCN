@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1536 2048">
+  <defs>
+    <pattern id="diag" width="160" height="160" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
+      <rect width="160" height="160" fill="#94c9eb"/>
+      <rect width="90" height="160" fill="#7eb7de" opacity="0.35"/>
+    </pattern>
+    <pattern id="word" width="620" height="260" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
+      <text x="0" y="175" font-size="100" font-family="Georgia,serif" font-weight="700" fill="#6ea2c6" opacity="0.35">INTER·VERDUN·</text>
+    </pattern>
+  </defs>
+  <rect width="1536" height="2048" fill="url(#diag)"/>
+  <rect width="1536" height="2048" fill="url(#word)"/>
+  <image href="escudo.svg" x="588" y="90" width="360" height="360" opacity="0.9"/>
+</svg>
