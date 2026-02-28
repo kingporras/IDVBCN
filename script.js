@@ -50,7 +50,8 @@ const state = {
   convocatoria: {
     matchId: null,
     attendanceByUserId: {},
-    profileIdByPlayerId: {}
+    profileIdByPlayerId: {},
+    lastSaveResult: '-'
   }
 };
 
@@ -117,7 +118,10 @@ async function loadConvocatoriaData(matchId) {
     .from('profiles')
     .select('id, display_name, role');
 
-  if (!profilesError && Array.isArray(profiles)) {
+  if (profilesError) {
+    console.error('[attendance] profiles load error', profilesError);
+    showToast('Error cargando perfiles: ' + (profilesError.message || profilesError.code), 'error');
+  } else if (Array.isArray(profiles)) {
     const profileIdByName = {};
     profiles.forEach((profile) => {
       const key = normalizeName(profile.display_name);
@@ -138,7 +142,8 @@ async function loadConvocatoriaData(matchId) {
     .eq('match_id', matchId);
 
   if (attendanceError) {
-    console.warn('No se pudo cargar asistencia:', attendanceError.message);
+    console.error('[attendance] load error', attendanceError);
+    showToast('Error cargando asistencia: ' + (attendanceError.message || attendanceError.code), 'error');
     return;
   }
 
@@ -147,6 +152,35 @@ async function loadConvocatoriaData(matchId) {
       state.convocatoria.attendanceByUserId[row.user_id] = row.status;
     }
   });
+}
+
+async function saveAttendance(matchId, userId, status) {
+  console.log('[attendance] saving', { matchId, userId, status });
+
+  if (!supabaseClient) {
+    const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, ...error });
+    showToast('Error guardando asistencia: ' + (error.message || error.code), 'error');
+    return false;
+  }
+
+  const { data, error } = await supabaseClient
+    .from('attendance')
+    .upsert({ match_id: matchId, user_id: userId, status }, { onConflict: 'match_id,user_id' })
+    .select();
+
+  if (error) {
+    console.error('[attendance] error', error);
+    state.convocatoria.lastSaveResult = JSON.stringify({ ok: false, message: error.message, code: error.code });
+    showToast('Error guardando asistencia: ' + (error.message || error.code), 'error');
+    return false;
+  }
+
+  console.log('[attendance] ok', data);
+  state.convocatoria.lastSaveResult = JSON.stringify({ ok: true, rows: Array.isArray(data) ? data.length : 0 });
+  showToast('Asistencia guardada', 'success');
+  return true;
 }
 
 async function loadData() {
@@ -314,6 +348,7 @@ function renderConvocatoria() {
 
   const players = getPlayers();
   const isAdmin = state.sessionUser.role === 'admin';
+  const authUid = state.sessionUser.id;
 
   let confirmados = 0;
   let pendientes = 0;
@@ -327,16 +362,16 @@ function renderConvocatoria() {
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const editable = Boolean(userId) && (isAdmin || userId === state.sessionUser.id);
-    const showActions = isAdmin || userId === state.sessionUser.id || !userId;
+    const editable = Boolean(userId) && (isAdmin || userId === authUid);
+    const showActions = isAdmin || userId === authUid || !userId;
     const disabledAttr = editable ? '' : 'disabled';
 
     return `<li>
       <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span>
       <div class="att-actions ${showActions ? '' : 'hidden'}">
-        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
-        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="pending" ${disabledAttr}>⏳</button>
-        <button type="button" data-action="att" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="pending" ${disabledAttr}>⏳</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
       </div>
     </li>`;
   }).join('');
@@ -344,6 +379,22 @@ function renderConvocatoria() {
   $('countConfirmados').textContent = `Confirmados: ${confirmados}`;
   $('countPendientes').textContent = `Pendientes: ${pendientes}`;
   $('countBajas').textContent = `Bajas: ${bajas}`;
+
+  const debug = $('convocatoriaDebug');
+  if (debug) {
+    if (isAdmin) {
+      debug.classList.remove('hidden');
+      debug.textContent = [
+        '[debug/convocatoria]',
+        `matchId: ${state.selectedMatchId || '-'}`,
+        `authUid: ${authUid || '-'}`,
+        `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
+      ].join('\n');
+    } else {
+      debug.classList.add('hidden');
+      debug.textContent = '';
+    }
+  }
 }
 
 function renderCalendario() {
@@ -439,9 +490,10 @@ function renderAll() {
   route();
 }
 
-function showToast(text) {
+function showToast(text, type = "info") {
   const t = $('toast');
   t.textContent = text;
+  t.dataset.type = type;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 1600);
 }
@@ -643,32 +695,39 @@ function bindEvents() {
     if (!btn) return;
 
     if (btn.dataset.action === 'att') {
-      const userId = btn.dataset.userId;
       const status = btn.dataset.status;
+      const matchId = $('matchSelector').value || state.selectedMatchId;
+      const mappedUserId = btn.dataset.userId;
+      const isAdmin = state.sessionUser.role === 'admin';
+      const userId = isAdmin ? mappedUserId : state.sessionUser.id;
+
+      if (!matchId) {
+        const error = { message: 'Partido no seleccionado', code: 'NO_MATCH' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
+        return;
+      }
+
       if (!userId) {
-        showToast('Jugador sin perfil vinculado');
+        const error = { message: 'Jugador sin perfil vinculado', code: 'NO_PROFILE' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
         return;
       }
 
-      const canEdit = state.sessionUser.role === 'admin' || state.sessionUser.id === userId;
-      if (!canEdit) return;
-
-      if (!supabaseClient) {
-        showToast('Supabase no disponible');
+      const canEdit = isAdmin || state.sessionUser.id === userId;
+      if (!canEdit) {
+        const error = { message: 'Sin permisos para editar esta fila', code: 'FORBIDDEN' };
+        console.error('[attendance] error', error);
+        showToast('Error guardando asistencia: ' + error.message, 'error');
         return;
       }
 
-      const { error } = await supabaseClient.from('attendance').upsert(
-        { match_id: state.selectedMatchId, user_id: userId, status },
-        { onConflict: 'match_id,user_id' }
-      );
+      const ok = await saveAttendance(matchId, userId, status);
+      if (!ok) return;
 
-      if (error) {
-        showToast(error.message || 'Error al guardar asistencia');
-        return;
-      }
-
-      await loadConvocatoriaData(state.selectedMatchId);
+      state.selectedMatchId = matchId;
+      await loadConvocatoriaData(matchId);
       renderConvocatoria();
       renderHome();
       showToast('Asistencia guardada');
