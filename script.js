@@ -785,6 +785,7 @@ function bindEvents() {
       await loadConvocatoriaData(matchId);
       renderConvocatoria();
       renderHome();
+      showToast('Asistencia guardada');
     }
 
     if (btn.dataset.action === 'open-match') {
