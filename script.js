@@ -539,6 +539,13 @@ function renderMvp() {
     state.mvp.selectedMatchId = upcoming?.id || matches[0].id;
   }
 
+  if (!matches.length || !players.length) {
+    $('mvpMatchSelector').innerHTML = '';
+    $('mvpPlayerSelector').innerHTML = '';
+    $('mvpRankingList').innerHTML = '<li>Sin datos para MVP todavía.</li>';
+    return;
+  }
+
   $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('mvpMatchSelector').value = state.mvp.selectedMatchId;
   $('mvpPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
@@ -848,6 +855,7 @@ function bindEvents() {
       await loadConvocatoriaData(matchId);
       renderConvocatoria();
       renderHome();
+      showToast('Asistencia guardada');
     }
 
     if (btn.dataset.action === 'open-match') {
