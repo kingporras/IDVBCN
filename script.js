@@ -6,7 +6,6 @@ const state = {
   data: null,
   sessionUser: null,
   currentProfile: null,
-  isAdmin: null,
   profileFetchSucceeded: null,
   profileFetchErrorMessage: '',
   selectedMatchId: null,
@@ -386,24 +385,9 @@ function refreshAdminUI() {
   renderAuthDebugPanel();
 }
 
-function applyProfileState(profile) {
-  state.currentProfile = profile || null;
-  state.isAdmin = profile?.role === 'admin';
-  console.log('Admin recalculated:', {
-    role: profile?.role,
-    isAdmin: state.isAdmin
-  });
-
-  if (profile?.role === 'admin' && state.isAdmin === false) {
-    console.error('Admin desync detected');
-  }
-
-  refreshAdminUI();
-}
-
 async function fetchCurrentProfile(userId) {
   if (!supabaseClient || !userId) {
-    applyProfileState(null);
+    state.currentProfile = null;
     state.profileFetchSucceeded = false;
     state.profileFetchErrorMessage = 'Sesión inválida o cliente no disponible';
     return null;
@@ -416,7 +400,7 @@ async function fetchCurrentProfile(userId) {
     .single();
 
   if (error) {
-    applyProfileState(null);
+    state.currentProfile = null;
     state.profileFetchSucceeded = false;
     state.profileFetchErrorMessage = error.message || 'Error desconocido';
     setProfileBanner('No puedo leer tu perfil (RLS?)');
@@ -425,7 +409,13 @@ async function fetchCurrentProfile(userId) {
   }
 
   setProfileBanner('');
-  applyProfileState(profile);
+  state.currentProfile = profile;
+  state.isAdmin = String(profile.role || '').trim().toLowerCase() === 'admin';
+  console.log('[ADMIN] role:', profile.role, '=> isAdmin:', state.isAdmin);
+  if (String(profile.role || '').trim().toLowerCase() === 'admin' && state.isAdmin === false) {
+    console.error('Admin desync detected');
+  }
+  refreshAdminUI();
   state.profileFetchSucceeded = true;
   state.profileFetchErrorMessage = '';
   return profile;
@@ -457,6 +447,7 @@ function renderAuthDebugPanel() {
     `<div>session.user.email: ${state.sessionUser.email || '-'}</div>`,
     `<div>profile fetch ok: ${state.profileFetchSucceeded === null ? '-' : String(state.profileFetchSucceeded)}</div>`,
     `<div>profile.role: ${state.currentProfile?.role || '-'}</div>`,
+    `<div>computedIsAdmin: ${String(String(state.currentProfile?.role || '').trim().toLowerCase() === 'admin')}</div>`,
     `<div>state.isAdmin: ${String(state.isAdmin)}</div>`,
     `<div>profile fetch error: ${state.profileFetchErrorMessage || '-'}</div>`
   ].join('');
@@ -1091,7 +1082,7 @@ async function syncSession() {
 
   const user = data.session?.user;
   if (!user) {
-    applyProfileState(null);
+    state.currentProfile = null;
     state.profileFetchSucceeded = null;
     state.profileFetchErrorMessage = '';
     applyAuthUI(null);
@@ -1375,7 +1366,7 @@ async function init() {
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     if (!session?.user) {
-      applyProfileState(null);
+      state.currentProfile = null;
       state.profileFetchSucceeded = null;
       state.profileFetchErrorMessage = '';
       applyAuthUI(null);
