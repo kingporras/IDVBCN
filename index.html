@@ -52,7 +52,8 @@
         </article>
         <article class="card">
           <h2>Alineación</h2>
-          <div id="lineupList" class="lineup"></div>
+          <p id="lineupHomeMessage" class="lineup-message">Sin alineación definida</p>
+          <div id="lineupFieldHome" class="lineup-field hidden"></div>
         </article>
       </section>
 
@@ -139,6 +140,22 @@
           </form>
           <button id="adminImageBtn">Generar imagen convocatoria</button>
         </article>
+        <article class="card">
+          <h2>Alineación por partido</h2>
+          <label for="lineupMatchSelector">Partido</label>
+          <select id="lineupMatchSelector"></select>
+          <div id="lineupFormationToggle" class="formation-toggle">
+            <button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button>
+            <button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button>
+          </div>
+          <p id="lineupAdminMessage" class="lineup-message"></p>
+          <div id="lineupFieldAdmin" class="lineup-field hidden"></div>
+          <label for="lineupSlotSelector">Slot</label>
+          <select id="lineupSlotSelector"></select>
+          <label for="lineupPlayerSelectorForSlot">Jugador</label>
+          <select id="lineupPlayerSelectorForSlot"></select>
+          <button id="saveLineupBtn" type="button">Guardar alineación</button>
+        </article>
       </section>
     </main>
 
@@ -156,6 +173,11 @@
     <article class="card">
       <h3 id="modalTitle"></h3>
       <p id="modalDetail"></p>
+      <div class="card lineup-card-modal">
+        <h4>Alineación</h4>
+        <p id="lineupModalMessage" class="lineup-message">Sin alineación definida</p>
+        <div id="lineupFieldModal" class="lineup-field hidden"></div>
+      </div>
       <div id="modalAdminEdit" class="hidden">
         <input id="modalResultInput" placeholder="Resultado" />
         <button id="modalSaveResultBtn">Guardar</button>

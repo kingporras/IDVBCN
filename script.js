@@ -21,6 +21,41 @@ const state = {
     votesByPlayerForSelected: {},
     globalTotals: {},
     lastVotePayload: '-'
+  },
+  lineupsByMatch: {},
+  lineupEditor: {
+    selectedMatchId: null,
+    formation: '1-2-3-1',
+    selectedSlot: 'GK',
+    assignments: {},
+    originalAssignments: {}
+  }
+};
+
+const FORMATIONS = {
+  '1-2-3-1': {
+    slots: ['GK', 'D1', 'D2', 'M1', 'M2', 'M3', 'F1'],
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 35, y: 68 },
+      D2: { x: 65, y: 68 },
+      M1: { x: 25, y: 45 },
+      M2: { x: 50, y: 42 },
+      M3: { x: 75, y: 45 },
+      F1: { x: 50, y: 18 }
+    }
+  },
+  '1-3-2-1': {
+    slots: ['GK', 'D1', 'D2', 'D3', 'M1', 'M2', 'F1'],
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 25, y: 68 },
+      D2: { x: 50, y: 64 },
+      D3: { x: 75, y: 68 },
+      M1: { x: 38, y: 42 },
+      M2: { x: 62, y: 42 },
+      F1: { x: 50, y: 18 }
+    }
   }
 };
 
@@ -164,26 +199,38 @@ async function loadData() {
 
   if (!supabaseClient) {
     state.data = emptyData;
+    state.lineupsByMatch = {};
     return;
   }
 
   try {
-    const [playersRes, matchesRes] = await Promise.all([
+    const [playersRes, matchesRes, lineupsRes] = await Promise.all([
       supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
-      supabaseClient.from('matches').select('*').order('date_time', { ascending: true })
+      supabaseClient.from('matches').select('*').order('date_time', { ascending: true }),
+      supabaseClient.from('lineups').select('match_id, player_id, position_slot')
     ]);
 
     if (playersRes.error) throw playersRes.error;
     if (matchesRes.error) throw matchesRes.error;
+    if (lineupsRes.error) throw lineupsRes.error;
 
     state.data = {
       players: (playersRes.data || []).map(mapPlayerRow),
       matches: (matchesRes.data || []).map(mapMatchRow),
       lineup: []
     };
+
+    state.lineupsByMatch = {};
+    (lineupsRes.data || []).forEach((row) => {
+      if (!row?.match_id || !row?.player_id || !row?.position_slot) return;
+      const matchId = String(row.match_id);
+      if (!state.lineupsByMatch[matchId]) state.lineupsByMatch[matchId] = {};
+      state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
+    });
   } catch (error) {
     console.error(error);
     state.data = emptyData;
+    state.lineupsByMatch = {};
     showToast(error.message || 'Error cargando datos desde Supabase', 'error');
   }
 }
@@ -218,6 +265,70 @@ function getMatches() {
 function getUpcomingMatch() {
   const now = new Date();
   return getMatches().find((m) => new Date(m.date) > now) || getMatches()[0];
+}
+
+function detectFormation(assignments = {}) {
+  const slots = Object.keys(assignments);
+  if (slots.includes('D3')) return '1-3-2-1';
+  return '1-2-3-1';
+}
+
+function getLineupAssignments(matchId) {
+  return state.lineupsByMatch[matchId] || {};
+}
+
+function playerNameById(playerId) {
+  return getPlayers().find((p) => p.id === playerId)?.name || 'Jugador';
+}
+
+function renderLineupField(container, assignments, formation, options = {}) {
+  if (!container) return;
+  const config = FORMATIONS[formation] || FORMATIONS['1-2-3-1'];
+  const clickable = Boolean(options.clickable);
+  const selectedSlot = options.selectedSlot || '';
+  const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
+
+  container.classList.add('lineup-field');
+  container.innerHTML = config.slots.map((slot) => {
+    const pos = config.positions[slot] || { x: 50, y: 50 };
+    const playerId = assignments[slot] || '';
+    const player = playersById[playerId];
+    const playerName = player?.name || 'Vacío';
+    const classes = [
+      'lineup-player',
+      player ? 'has-player' : 'empty',
+      selectedSlot === slot ? 'selected' : '',
+      clickable ? 'clickable' : ''
+    ].filter(Boolean).join(' ');
+
+    return `
+      <button type="button" class="${classes}" style="left:${pos.x}%;top:${pos.y}%" ${clickable ? `data-action="lineup-slot" data-slot="${slot}"` : 'disabled'}>
+        <small>${slot}</small>
+        <span>${playerName}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+function renderLineupForMatch(containerId, messageId, matchId) {
+  const container = $(containerId);
+  const message = $(messageId);
+  if (!container || !message) return;
+
+  const assignments = getLineupAssignments(matchId);
+  const hasLineup = Object.keys(assignments).length > 0;
+
+  if (!hasLineup) {
+    container.className = 'lineup-field hidden';
+    container.innerHTML = '';
+    message.textContent = 'Sin alineación definida';
+    return;
+  }
+
+  const formation = detectFormation(assignments);
+  message.textContent = `Formación ${formation}`;
+  container.classList.remove('hidden');
+  renderLineupField(container, assignments, formation);
 }
 
 function formatDate(iso) {
@@ -347,7 +458,9 @@ function renderHome() {
   if (!players.length) {
     $('myStats').innerHTML = '<p>Sin jugadores cargados todavía.</p>';
     $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
-    $('lineupList').innerHTML = '<span>Sin alineación disponible.</span>';
+    $('lineupHomeMessage').textContent = 'Sin alineación definida';
+    $('lineupFieldHome').classList.add('hidden');
+    $('lineupFieldHome').innerHTML = '';
     $('nextMatchText').textContent = 'Sin partido próximo';
     return;
   }
@@ -366,7 +479,7 @@ function renderHome() {
 
   $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
   $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
-  $('lineupList').innerHTML = (state.data.lineup || []).map((p) => `<span>${p}</span>`).join('') || '<span>Sin alineación disponible.</span>';
+  renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null);
 }
 
 function renderConvocatoria() {
@@ -661,6 +774,172 @@ function renderMvp() {
   }
 }
 
+
+function hydrateLineupEditor(matchId) {
+  const assignments = { ...(getLineupAssignments(matchId) || {}) };
+  const formation = detectFormation(assignments);
+  const slots = FORMATIONS[formation].slots;
+  const cleaned = {};
+  slots.forEach((slot) => {
+    if (assignments[slot]) cleaned[slot] = assignments[slot];
+  });
+
+  state.lineupEditor.selectedMatchId = matchId;
+  state.lineupEditor.formation = formation;
+  state.lineupEditor.selectedSlot = slots[0];
+  state.lineupEditor.assignments = cleaned;
+  state.lineupEditor.originalAssignments = { ...cleaned };
+}
+
+function normalizeAssignmentsForFormation(assignments, formation) {
+  const slots = FORMATIONS[formation].slots;
+  const normalized = {};
+  slots.forEach((slot) => {
+    const playerId = assignments[slot];
+    if (playerId && isUuid(playerId)) normalized[slot] = playerId;
+  });
+  return normalized;
+}
+
+function assignLineupPlayer(slot, playerIdRaw) {
+  const playerId = playerIdRaw || '';
+  const assignments = { ...state.lineupEditor.assignments };
+
+  Object.keys(assignments).forEach((key) => {
+    if (assignments[key] === playerId) delete assignments[key];
+  });
+
+  if (!playerId) {
+    delete assignments[slot];
+  } else {
+    assignments[slot] = playerId;
+  }
+
+  state.lineupEditor.assignments = assignments;
+}
+
+async function saveLineupForMatch(matchId, nextAssignments) {
+  if (!supabaseClient) {
+    const error = { message: 'Supabase no disponible', code: 'NO_CLIENT' };
+    console.error('[lineups] error', error);
+    showToast('Error guardando alineación: ' + error.message, 'error');
+    return false;
+  }
+
+  if (!isUuid(matchId)) {
+    const error = { message: 'match_id inválido para alineación', code: 'BAD_MATCH_ID', matchId };
+    console.error('[lineups] error', error);
+    showToast('Error guardando alineación: ' + error.message, 'error');
+    return false;
+  }
+
+  const { error: deleteError } = await supabaseClient
+    .from('lineups')
+    .delete()
+    .eq('match_id', matchId);
+
+  if (deleteError) {
+    console.error('[lineups] delete error', deleteError);
+    showToast('Error guardando alineación: ' + (deleteError.message || deleteError.code), 'error');
+    return false;
+  }
+
+  const upsertRows = Object.entries(nextAssignments || {}).map(([slot, playerId]) => ({
+    match_id: matchId,
+    player_id: playerId,
+    position_slot: slot
+  }));
+
+  if (upsertRows.length) {
+    const { error: upsertError } = await supabaseClient
+      .from('lineups')
+      .upsert(upsertRows, { onConflict: 'match_id,player_id' });
+
+    if (upsertError) {
+      console.error('[lineups] upsert error', upsertError);
+      showToast('Error guardando alineación: ' + (upsertError.message || upsertError.code), 'error');
+      return false;
+    }
+  }
+
+  const { data: finalRows, error: finalError } = await supabaseClient
+    .from('lineups')
+    .select('match_id, player_id, position_slot')
+    .eq('match_id', matchId);
+
+  if (finalError) {
+    console.error('[lineups] reload error', finalError);
+    showToast('Error recargando alineación: ' + (finalError.message || finalError.code), 'error');
+    return false;
+  }
+
+  state.lineupsByMatch[matchId] = {};
+  (finalRows || []).forEach((row) => {
+    state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
+  });
+
+  return true;
+}
+
+function renderLineupEditor() {
+  const matchSelect = $('lineupMatchSelector');
+  const formationToggle = $('lineupFormationToggle');
+  const field = $('lineupFieldAdmin');
+  const slotSelect = $('lineupSlotSelector');
+  const playerSelect = $('lineupPlayerSelectorForSlot');
+  if (!matchSelect || !formationToggle || !field || !slotSelect || !playerSelect) return;
+
+  const matches = getMatches().filter((m) => isUuid(m.id));
+  if (!matches.length) {
+    matchSelect.innerHTML = '';
+    field.classList.add('hidden');
+    $('lineupAdminMessage').textContent = 'No hay partidos UUID para editar alineación.';
+    return;
+  }
+
+  if (!state.lineupEditor.selectedMatchId || !isUuid(state.lineupEditor.selectedMatchId)) {
+    state.lineupEditor.selectedMatchId = matches[0].id;
+    hydrateLineupEditor(state.lineupEditor.selectedMatchId);
+  }
+
+  if (!matches.some((m) => m.id === state.lineupEditor.selectedMatchId)) {
+    state.lineupEditor.selectedMatchId = matches[0].id;
+    hydrateLineupEditor(state.lineupEditor.selectedMatchId);
+  }
+
+  matchSelect.innerHTML = matches.map((m) => `<option value="${m.id}">${m.id} · ${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  matchSelect.value = state.lineupEditor.selectedMatchId;
+
+  const formation = state.lineupEditor.formation;
+  const slots = FORMATIONS[formation].slots;
+  if (!slots.includes(state.lineupEditor.selectedSlot)) state.lineupEditor.selectedSlot = slots[0];
+
+  formationToggle.querySelectorAll('button').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.formation === formation);
+  });
+
+  slotSelect.innerHTML = slots.map((slot) => `<option value="${slot}">${slot}</option>`).join('');
+  slotSelect.value = state.lineupEditor.selectedSlot;
+
+  const players = getPlayers().filter((p) => isUuid(p.id));
+  const usedPlayers = new Set(Object.values(state.lineupEditor.assignments));
+  const currentPlayer = state.lineupEditor.assignments[state.lineupEditor.selectedSlot] || '';
+  const options = ['<option value="">-- Vaciar slot --</option>'].concat(
+    players
+      .filter((p) => p.id === currentPlayer || !usedPlayers.has(p.id))
+      .map((p) => `<option value="${p.id}">${p.name}</option>`)
+  );
+  playerSelect.innerHTML = options.join('');
+  playerSelect.value = currentPlayer;
+
+  $('lineupAdminMessage').textContent = `Editando ${state.lineupEditor.selectedMatchId}`;
+  field.classList.remove('hidden');
+  renderLineupField(field, state.lineupEditor.assignments, formation, {
+    clickable: true,
+    selectedSlot: state.lineupEditor.selectedSlot
+  });
+}
+
 function renderAdmin() {
   const isAdmin = state.isAdmin;
   document.querySelector('.admin-tab').classList.toggle('hidden', !isAdmin);
@@ -673,6 +952,7 @@ function renderAdmin() {
 
   $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
   $('adminPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  renderLineupEditor();
 }
 
 function renderAll() {
@@ -737,6 +1017,7 @@ function openMatchModal(matchId) {
   if (!m) return;
   $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
   $('modalDetail').textContent = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} · Actualizar jueves post-partido`;
+  renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
   const isAdmin = state.isAdmin;
@@ -805,6 +1086,8 @@ async function syncSession() {
   state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
   await loadConvocatoriaData(state.selectedMatchId);
   await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
+  const lineupMatchId = getMatches().find((m) => isUuid(m.id))?.id || null;
+  if (lineupMatchId) hydrateLineupEditor(lineupMatchId);
 
   applyAuthUI({
     id: user.id,
@@ -868,9 +1151,56 @@ function bindEvents() {
     renderConvocatoria();
   });
 
+  $('lineupMatchSelector')?.addEventListener('change', (e) => {
+    hydrateLineupEditor(e.target.value);
+    renderLineupEditor();
+  });
+
+  $('lineupSlotSelector')?.addEventListener('change', (e) => {
+    state.lineupEditor.selectedSlot = e.target.value;
+    renderLineupEditor();
+  });
+
+  $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => {
+    assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value);
+    renderLineupEditor();
+  });
+
+  $('saveLineupBtn')?.addEventListener('click', async () => {
+    const matchId = state.lineupEditor.selectedMatchId;
+    const formation = state.lineupEditor.formation;
+    const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation);
+    const ok = await saveLineupForMatch(matchId, assignments);
+    if (!ok) return;
+
+    hydrateLineupEditor(matchId);
+    renderLineupEditor();
+    renderHome();
+    showToast('Alineación guardada', 'success');
+  });
+
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
+
+    if (btn.dataset.action === 'lineup-slot') {
+      state.lineupEditor.selectedSlot = btn.dataset.slot;
+      renderLineupEditor();
+      return;
+    }
+
+    if (btn.dataset.action === 'set-formation') {
+      const nextFormation = btn.dataset.formation;
+      if (!FORMATIONS[nextFormation]) return;
+
+      state.lineupEditor.formation = nextFormation;
+      state.lineupEditor.assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, nextFormation);
+      if (!FORMATIONS[nextFormation].slots.includes(state.lineupEditor.selectedSlot)) {
+        state.lineupEditor.selectedSlot = FORMATIONS[nextFormation].slots[0];
+      }
+      renderLineupEditor();
+      return;
+    }
 
     if (btn.dataset.action === 'att') {
       const status = btn.dataset.status;
