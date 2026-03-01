@@ -205,67 +205,90 @@ dialog {
 }
 
 .lineup-field {
-  position: relative;
-  min-height: 270px;
-  border-radius: 14px;
-  border: 2px solid #ffffff;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      #4ca8e8 0,
-      #4ca8e8 36px,
-      #57b3ef 36px,
-      #57b3ef 72px
-    );
-  overflow: hidden;
-  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+  width: 100%;
 }
 
-.lineup-field::before,
-.lineup-field::after {
+.pitch {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  background:
+    repeating-linear-gradient(
+      180deg,
+      rgba(78, 166, 214, 0.9) 0%,
+      rgba(78, 166, 214, 0.9) 14%,
+      rgba(97, 185, 224, 0.9) 14%,
+      rgba(97, 185, 224, 0.9) 28%
+    );
+  overflow: hidden;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.25);
+}
+
+.pitch[data-formation] {
+  background-image:
+    linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0)),
+    repeating-linear-gradient(180deg, rgba(78, 166, 214, 0.9) 0%, rgba(78, 166, 214, 0.9) 14%, rgba(97, 185, 224, 0.9) 14%, rgba(97, 185, 224, 0.9) 28%);
+}
+
+.pitch::before,
+.pitch::after {
   content: '';
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  border: 2px solid rgba(255, 255, 255, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.85);
   pointer-events: none;
 }
 
-.lineup-field::before {
+.pitch::before {
   top: 50%;
-  width: 96%;
-  transform: translate(-50%, -50%);
+  width: 100%;
   border-left: none;
   border-right: none;
 }
 
-.lineup-field::after {
-  top: calc(50% - 32px);
-  width: 64px;
-  height: 64px;
+.pitch::after {
+  top: calc(50% - 9%);
+  width: 18%;
+  aspect-ratio: 1;
   border-radius: 50%;
 }
 
-.lineup-player {
+.pitch .penalty-box,
+.pitch .goal-box {
   position: absolute;
-  transform: translate(-50%, -50%);
-  width: 88px;
-  min-height: 58px;
-  border-radius: 999px;
-  border: 2px solid #ffffff;
-  background: rgba(255, 255, 255, 0.92);
-  color: #0d3f66;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  padding: 6px;
-  font-size: 0.7rem;
-  line-height: 1.1;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.72);
+  pointer-events: none;
 }
 
-.lineup-player span {
+
+.pitch .penalty-box.top { top: 0; width: 56%; height: 18%; border-top: none; }
+.pitch .goal-box.top { top: 0; width: 30%; height: 9%; border-top: none; }
+.pitch .penalty-box.bottom { bottom: 0; width: 56%; height: 18%; border-bottom: none; }
+.pitch .goal-box.bottom { bottom: 0; width: 30%; height: 9%; border-bottom: none; }
+
+.player-chip {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 76px;
+  min-height: 50px;
+  border-radius: 999px;
+  border: 2px solid #2f7fc6;
+  background: rgba(255, 255, 255, 0.96);
+  color: #0d3f66;
+  display: grid;
+  place-items: center;
+  padding: 6px 8px;
+  font-size: 0.69rem;
+  line-height: 1.15;
+}
+
+.player-chip span {
+  display: block;
   font-weight: 700;
   max-width: 100%;
   white-space: nowrap;
@@ -273,13 +296,30 @@ dialog {
   text-overflow: ellipsis;
 }
 
-.lineup-player.empty {
-  background: rgba(212, 175, 55, 0.22);
-  border-color: #ffe18d;
+.player-chip.placeholder {
+  background: rgba(255, 255, 255, 0.32);
+  color: rgba(255, 255, 255, 0.9);
+  border-color: rgba(255, 255, 255, 0.66);
 }
 
-.lineup-player.clickable { cursor: pointer; }
-.lineup-player.selected { box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.9); }
+.player-chip.clickable { cursor: pointer; }
+.player-chip.selected,
+.player-chip.admin-highlight.selected {
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.9);
+}
+
+.player-chip.admin-highlight.has-player {
+  border-color: #d4af37;
+}
+
+@media (max-width: 380px) {
+  .player-chip {
+    width: 66px;
+    min-height: 46px;
+    font-size: 0.63rem;
+    padding: 5px 6px;
+  }
+}
 
 .formation-toggle {
   display: grid;
