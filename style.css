@@ -197,3 +197,109 @@ dialog {
   body { padding: 20px 0; }
   .app-shell { border-radius: 18px; overflow: hidden; }
 }
+
+.lineup-message {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lineup-field {
+  position: relative;
+  min-height: 270px;
+  border-radius: 14px;
+  border: 2px solid #ffffff;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      #4ca8e8 0,
+      #4ca8e8 36px,
+      #57b3ef 36px,
+      #57b3ef 72px
+    );
+  overflow: hidden;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.lineup-field::before,
+.lineup-field::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  pointer-events: none;
+}
+
+.lineup-field::before {
+  top: 50%;
+  width: 96%;
+  transform: translate(-50%, -50%);
+  border-left: none;
+  border-right: none;
+}
+
+.lineup-field::after {
+  top: calc(50% - 32px);
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+
+.lineup-player {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 88px;
+  min-height: 58px;
+  border-radius: 999px;
+  border: 2px solid #ffffff;
+  background: rgba(255, 255, 255, 0.92);
+  color: #0d3f66;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 6px;
+  font-size: 0.7rem;
+  line-height: 1.1;
+}
+
+.lineup-player span {
+  font-weight: 700;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lineup-player.empty {
+  background: rgba(212, 175, 55, 0.22);
+  border-color: #ffe18d;
+}
+
+.lineup-player.clickable { cursor: pointer; }
+.lineup-player.selected { box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.9); }
+
+.formation-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.formation-toggle button {
+  background: #e9f4ff;
+  color: var(--text);
+  border: 1px solid #c8dcf5;
+}
+
+.formation-toggle button.active {
+  background: linear-gradient(180deg, var(--club-blue), #2d84dc);
+  color: white;
+}
+
+.lineup-card-modal {
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
