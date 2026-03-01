@@ -6,7 +6,7 @@ const state = {
   data: null,
   sessionUser: null,
   currentProfile: null,
-  isAdmin: false,
+  isAdmin: null,
   profileFetchSucceeded: null,
   profileFetchErrorMessage: '',
   selectedMatchId: null,
@@ -380,10 +380,30 @@ function setProfileBanner(message = '') {
   banner.style.display = 'block';
 }
 
+function refreshAdminUI() {
+  renderAdmin();
+  route();
+  renderAuthDebugPanel();
+}
+
+function applyProfileState(profile) {
+  state.currentProfile = profile || null;
+  state.isAdmin = profile?.role === 'admin';
+  console.log('Admin recalculated:', {
+    role: profile?.role,
+    isAdmin: state.isAdmin
+  });
+
+  if (profile?.role === 'admin' && state.isAdmin === false) {
+    console.error('Admin desync detected');
+  }
+
+  refreshAdminUI();
+}
+
 async function fetchCurrentProfile(userId) {
   if (!supabaseClient || !userId) {
-    state.currentProfile = null;
-    state.isAdmin = false;
+    applyProfileState(null);
     state.profileFetchSucceeded = false;
     state.profileFetchErrorMessage = 'Sesión inválida o cliente no disponible';
     return null;
@@ -396,8 +416,7 @@ async function fetchCurrentProfile(userId) {
     .single();
 
   if (error) {
-    state.currentProfile = null;
-    state.isAdmin = false;
+    applyProfileState(null);
     state.profileFetchSucceeded = false;
     state.profileFetchErrorMessage = error.message || 'Error desconocido';
     setProfileBanner('No puedo leer tu perfil (RLS?)');
@@ -406,8 +425,7 @@ async function fetchCurrentProfile(userId) {
   }
 
   setProfileBanner('');
-  state.currentProfile = profile;
-  state.isAdmin = profile.role === 'admin';
+  applyProfileState(profile);
   state.profileFetchSucceeded = true;
   state.profileFetchErrorMessage = '';
   return profile;
@@ -1073,8 +1091,7 @@ async function syncSession() {
 
   const user = data.session?.user;
   if (!user) {
-    state.currentProfile = null;
-    state.isAdmin = false;
+    applyProfileState(null);
     state.profileFetchSucceeded = null;
     state.profileFetchErrorMessage = '';
     applyAuthUI(null);
@@ -1358,8 +1375,7 @@ async function init() {
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
     if (!session?.user) {
-      state.currentProfile = null;
-      state.isAdmin = false;
+      applyProfileState(null);
       state.profileFetchSucceeded = null;
       state.profileFetchErrorMessage = '';
       applyAuthUI(null);
