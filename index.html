@@ -14,10 +14,12 @@
       <img src="escudo.png" alt="Escudo del club" class="logo" />
       <h1>EL INTER DE VERDUN</h1>
       <p>Inicia sesión para entrar a la app</p>
-      <label for="email">Email</label>
-      <input id="email" type="email" required autocomplete="email" />
-      <label for="password">Contraseña</label>
-      <input id="password" type="password" required autocomplete="current-password" />
+      <label for="email">Nombre o email</label>
+      <input id="email" type="text" required autocomplete="username" />
+      <label for="dorsal">Dorsal</label>
+      <input id="dorsal" type="number" min="0" placeholder="Ej: 4" />
+      <label for="password">Contraseña manual (opcional con email)</label>
+      <input id="password" type="password" autocomplete="current-password" />
       <button type="submit">Entrar</button>
       <button id="signupBtn" type="button" class="ghost">Crear cuenta (test admin)</button>
       <small>Usa tu cuenta de Supabase Auth (email + contraseña).</small>
@@ -41,9 +43,14 @@
           <h2>Mis estadísticas</h2>
           <div id="myStats" class="stats-grid"></div>
         </article>
+        <article id="adminPendingCard" class="card hidden">
+          <h2>Post-partido pendiente</h2>
+          <ul id="adminPendingList" class="list"></ul>
+        </article>
         <article class="card">
           <h2>Próximo partido</h2>
           <p id="nextMatchText"></p>
+          <small id="homePendingHint"></small>
           <button id="goConfirmBtn">Confirmar asistencia</button>
         </article>
         <article class="card">
@@ -179,10 +186,20 @@
         <div id="lineupFieldModal" class="lineup-field hidden"></div>
       </div>
       <div id="modalAdminEdit" class="hidden">
-        <input id="modalResultInput" placeholder="Resultado" />
-        <button id="modalSaveResultBtn">Guardar</button>
+        <button id="openPostMatchFromModalBtn" type="button">Actualizar ahora</button>
       </div>
       <button id="closeModalBtn" class="ghost">Cerrar</button>
+    </article>
+  </dialog>
+
+  <dialog id="postMatchModal">
+    <article class="card">
+      <h3 id="postMatchTitle">Post-partido</h3>
+      <label>Resultado local</label><input id="postResultHome" type="number" min="0" />
+      <label>Resultado rival</label><input id="postResultAway" type="number" min="0" />
+      <div id="postPlayersList" class="list"></div>
+      <button id="savePostMatchBtn" type="button">Guardar post-partido</button>
+      <button id="closePostMatchBtn" type="button" class="ghost">Cerrar</button>
     </article>
   </dialog>
 

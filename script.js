@@ -1,13 +1,17 @@
 const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+const DEBUG_AUTH = true;
+const AUTH_EMAIL_DOMAIN = 'gmail.com';
 
 const state = {
   data: null,
-  sessionUser: null,
-  currentProfile: null,
-  profileFetchSucceeded: null,
+  session: null,
+  profile: null,
+  profileStatus: 'loading',
   profileFetchErrorMessage: '',
+  pendingMatches: [],
+  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {} },
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -78,13 +82,17 @@ function mapPlayerRow(row) {
 }
 
 function mapMatchRow(row) {
+  const hasNumericResult = row.result_home !== null && row.result_home !== undefined && row.result_away !== null && row.result_away !== undefined;
+  const result = hasNumericResult ? `${row.result_home}-${row.result_away}` : (row.result || '-');
   return {
     id: String(row.id),
     date: row.date_time || row.date,
     rival: row.rival || row.opponent || 'Rival',
     home: row.home ?? row.is_home ?? true,
     venue: row.venue || 'Velòdrom F7',
-    result: row.result || '-'
+    result,
+    result_home: row.result_home,
+    result_away: row.result_away
   };
 }
 
@@ -263,7 +271,42 @@ function getMatches() {
 
 function getUpcomingMatch() {
   const now = new Date();
-  return getMatches().find((m) => new Date(m.date) > now) || getMatches()[0];
+  return getMatches().find((m) => new Date(m.date) >= now) || null;
+}
+
+function isPendingMatch(match) {
+  if (!match) return false;
+  const now = new Date();
+  const past = new Date(match.date) < now;
+  const missingResult = match.result_home === null || match.result_home === undefined || match.result_away === null || match.result_away === undefined;
+  return past && missingResult;
+}
+
+async function refreshPostMatchState() {
+  if (!supabaseClient) {
+    state.pendingMatches = [];
+    return;
+  }
+  const nowIso = new Date().toISOString();
+  const [{ data: nextRows, error: nextErr }, { data: pendingRows, error: pendingErr }] = await Promise.all([
+    supabaseClient.from('matches').select('*').gte('date_time', nowIso).order('date_time', { ascending: true }).limit(1),
+    supabaseClient.from('matches').select('*').lt('date_time', nowIso).or('result_home.is.null,result_away.is.null').order('date_time', { ascending: false })
+  ]);
+
+  if (!nextErr && Array.isArray(nextRows) && nextRows[0]) {
+    const nextMapped = mapMatchRow(nextRows[0]);
+    const idx = state.data.matches.findIndex((m) => m.id === nextMapped.id);
+    if (idx >= 0) state.data.matches[idx] = nextMapped;
+    else state.data.matches.push(nextMapped);
+  }
+
+  if (pendingErr) {
+    console.error('[post-match] pending query error', pendingErr);
+    state.pendingMatches = [];
+    return;
+  }
+
+  state.pendingMatches = (pendingRows || []).map(mapMatchRow);
 }
 
 function detectFormation(assignments = {}) {
@@ -341,6 +384,36 @@ function statusLabel(status) {
   return '⏳ Pendiente';
 }
 
+
+function normalizeAuthName(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+}
+
+function buildAuthCredentials() {
+  const identifier = $('email').value.trim();
+  const dorsalRaw = $('dorsal')?.value?.trim() || '';
+  const manualPassword = $('password').value.trim();
+
+  if (identifier.includes('@')) {
+    if (dorsalRaw) {
+      const name = normalizeAuthName(identifier.split('@')[0]);
+      const dorsal = String(Number(dorsalRaw));
+      const base = `${name}${dorsal}`;
+      const password = base.length < 6 ? `${name}${String(dorsal).padStart(2, '0')}` : base;
+      return { email: identifier, password };
+    }
+    return { email: identifier, password: manualPassword };
+  }
+
+  const name = normalizeAuthName(identifier);
+  if (!name || !dorsalRaw) return { email: '', password: '' };
+  const dorsal = String(Number(dorsalRaw));
+  const email = `${name}@${AUTH_EMAIL_DOMAIN}`;
+  const base = `${name}${dorsal}`;
+  const password = base.length < 6 ? `${name}${String(dorsal).padStart(2, '0')}` : base;
+  return { email, password };
+}
+
 function parseResult(result) {
   if (!result || result === '-' || !result.includes('-')) return null;
   const [a, b] = result.split('-').map((n) => Number(n.trim()));
@@ -352,11 +425,29 @@ function getVotesTotals() {
   return state.mvp.globalTotals || {};
 }
 
+function getSessionUser() {
+  const user = state.session?.user;
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    displayName: state.profile?.display_name || (user.email || 'jugador').split('@')[0],
+    role: state.profile?.role || null,
+    profileId: state.profile?.id || user.id,
+    playerId: state.profile?.player_id ? String(state.profile.player_id) : null
+  };
+}
+
+function isAdmin() {
+  return String(state.profile?.role || '').trim().toLowerCase() === 'admin';
+}
+
 function getCurrentPlayer() {
-  if (!state.sessionUser) return null;
-  const byProfile = getPlayers().find((p) => p.id === state.sessionUser.profileId);
+  const sessionUser = getSessionUser();
+  if (!sessionUser) return null;
+  const byProfile = getPlayers().find((p) => p.id === sessionUser.playerId);
   if (byProfile) return byProfile;
-  const display = (state.sessionUser.displayName || '').toLowerCase();
+  const display = (sessionUser.displayName || '').toLowerCase();
   return getPlayers().find((p) => p.name.toLowerCase() === display) || null;
 }
 
@@ -386,9 +477,12 @@ function refreshAdminUI() {
 }
 
 async function fetchCurrentProfile(userId) {
+  state.profileStatus = 'loading';
+  state.profile = null;
+  state.profileFetchErrorMessage = '';
+
   if (!supabaseClient || !userId) {
-    state.currentProfile = null;
-    state.profileFetchSucceeded = false;
+    state.profileStatus = 'error';
     state.profileFetchErrorMessage = 'Sesión inválida o cliente no disponible';
     return null;
   }
@@ -400,24 +494,21 @@ async function fetchCurrentProfile(userId) {
     .single();
 
   if (error) {
-    state.currentProfile = null;
-    state.profileFetchSucceeded = false;
+    state.profileStatus = 'error';
     state.profileFetchErrorMessage = error.message || 'Error desconocido';
-    setProfileBanner('No puedo leer tu perfil (RLS?)');
-    console.error('[profile] No puedo leer tu perfil (RLS?)', error);
+    setProfileBanner('No puedo leer tu perfil (RLS?). Contacta con admin.');
+    console.error('[profile] fetch error', error);
     return null;
   }
 
+  state.profile = profile;
+  state.profileStatus = 'ready';
+  state.profileFetchErrorMessage = '';
   setProfileBanner('');
-  state.currentProfile = profile;
-  state.isAdmin = String(profile.role || '').trim().toLowerCase() === 'admin';
-  console.log('[ADMIN] role:', profile.role, '=> isAdmin:', state.isAdmin);
-  if (String(profile.role || '').trim().toLowerCase() === 'admin' && state.isAdmin === false) {
-    console.error('Admin desync detected');
+  if (DEBUG_AUTH) {
+    console.log('[auth-debug] session.user.id:', userId, 'profile.role:', profile.role);
   }
   refreshAdminUI();
-  state.profileFetchSucceeded = true;
-  state.profileFetchErrorMessage = '';
   return profile;
 }
 
@@ -427,7 +518,7 @@ function renderAuthDebugPanel() {
   if (!app) return;
 
   let panel = $('authDebugPanel');
-  if (!state.sessionUser) {
+  if (!state.session?.user) {
     if (panel) panel.classList.add('hidden');
     return;
   }
@@ -443,20 +534,19 @@ function renderAuthDebugPanel() {
   panel.classList.remove('hidden');
   panel.innerHTML = [
     '<strong>Debug Auth/Profile</strong>',
-    `<div>session.user.id: ${state.sessionUser.id || '-'}</div>`,
-    `<div>session.user.email: ${state.sessionUser.email || '-'}</div>`,
-    `<div>profile fetch ok: ${state.profileFetchSucceeded === null ? '-' : String(state.profileFetchSucceeded)}</div>`,
-    `<div>profile.role: ${state.currentProfile?.role || '-'}</div>`,
-    `<div>computedIsAdmin: ${String(String(state.currentProfile?.role || '').trim().toLowerCase() === 'admin')}</div>`,
-    `<div>state.isAdmin: ${String(state.isAdmin)}</div>`,
+    `<div>session.user.id: ${state.session?.user?.id || '-'}</div>`,
+    `<div>session.user.email: ${state.session?.user?.email || '-'}</div>`,
+    `<div>profile fetch ok: ${state.profileStatus}</div>`,
+    `<div>profile.role: ${state.profile?.role || '-'}</div>`,
+    `<div>computedIsAdmin: ${String(isAdmin())}</div>`,
     `<div>profile fetch error: ${state.profileFetchErrorMessage || '-'}</div>`
   ].join('');
 }
 
 function route() {
   const hash = window.location.hash.replace('#', '') || 'home';
-  const isAdmin = state.isAdmin;
-  const view = hash === 'admin' && !isAdmin ? 'home' : hash;
+  const adminEnabled = state.profileStatus === 'ready' && isAdmin();
+  const view = hash === 'admin' && !adminEnabled ? 'home' : hash;
 
   document.querySelectorAll('.view').forEach((el) => el.classList.toggle('active', el.dataset.view === view));
   document.querySelectorAll('.bottom-nav a').forEach((el) => el.classList.toggle('active', el.dataset.tab === view));
@@ -487,6 +577,17 @@ function renderHome() {
   ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
 
   $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
+  $('homePendingHint').textContent = state.pendingMatches.length ? `Último partido: pendiente (${state.pendingMatches[0].rival})` : '';
+
+  const adminPendingCard = $('adminPendingCard');
+  if (isAdmin() && state.pendingMatches.length) {
+    adminPendingCard.classList.remove('hidden');
+    $('adminPendingList').innerHTML = state.pendingMatches.map((m) => `<li>${formatDate(m.date)} · ${m.rival} <button type="button" data-action="open-post-match" data-id="${m.id}">Actualizar ahora</button></li>`).join('');
+  } else {
+    adminPendingCard.classList.add('hidden');
+    $('adminPendingList').innerHTML = '';
+  }
+
   $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
   renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null);
 }
@@ -510,8 +611,9 @@ function renderConvocatoria() {
   $('matchSelector').value = state.selectedMatchId;
 
   const players = getPlayers();
-  const isAdmin = state.isAdmin;
-  const authUid = state.sessionUser.id;
+  const adminMode = isAdmin();
+  const sessionUser = getSessionUser();
+  const authUid = sessionUser?.id;
 
   console.log('[attendance] selectedMatchId', state.selectedMatchId, typeof state.selectedMatchId);
 
@@ -522,14 +624,14 @@ function renderConvocatoria() {
     $('countBajas').textContent = 'Bajas: 0';
 
     const debug = $('convocatoriaDebug');
-    if (debug && isAdmin) {
+    if (debug && adminMode) {
       debug.classList.remove('hidden');
       debug.textContent = [
         '[debug/convocatoria]',
         `selectedMatchId: ${state.selectedMatchId || '-'}`,
         `type: ${typeof state.selectedMatchId}`,
         `authUid: ${authUid || '-'}`,
-        `playerId: ${state.sessionUser.playerId || '-'}`,
+        `playerId: ${sessionUser?.playerId || '-'}`,
         `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
       ].join('\n');
     }
@@ -554,9 +656,9 @@ function renderConvocatoria() {
     else if (st === 'no') bajas += 1;
     else pendientes += 1;
 
-    const isOwnPlayer = p.id === state.sessionUser.playerId;
-    const editable = isAdmin ? Boolean(userId) : (isOwnPlayer && userId === authUid);
-    const showActions = isAdmin || isOwnPlayer;
+    const isOwnPlayer = p.id === sessionUser?.playerId;
+    const editable = adminMode ? Boolean(userId) : (isOwnPlayer && userId === authUid);
+    const showActions = adminMode || isOwnPlayer;
     const disabledAttr = editable ? '' : 'disabled';
 
     const accountHint = !userId ? '<small>sin cuenta</small>' : '';
@@ -577,14 +679,14 @@ function renderConvocatoria() {
 
   const debug = $('convocatoriaDebug');
   if (debug) {
-    if (isAdmin) {
+    if (adminMode) {
       debug.classList.remove('hidden');
       debug.textContent = [
         '[debug/convocatoria]',
         `selectedMatchId: ${state.selectedMatchId || '-'}`,
         `type: ${typeof state.selectedMatchId}`,
         `authUid: ${authUid || '-'}`,
-        `playerId: ${state.sessionUser.playerId || '-'}`,
+        `playerId: ${sessionUser?.playerId || '-'}`,
         `lastSave: ${state.convocatoria.lastSaveResult || '-'}`
       ].join('\n');
     } else {
@@ -606,6 +708,7 @@ function renderCalendario() {
       <button type="button" data-action="open-match" data-id="${m.id}">
         ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${m.result}
       </button>
+      ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}
     </li>
   `).join('');
 }
@@ -708,7 +811,7 @@ async function resolveMvpPayload(matchId, playerId) {
 
   return {
     match_id: match.id,
-    voter_user_id: state.sessionUser.id,
+    voter_user_id: getSessionUser()?.id,
     voted_player_id: player.id
   };
 }
@@ -769,12 +872,12 @@ function renderMvp() {
   $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
 
   const debug = $('mvpDebug');
-  if (debug && state.isAdmin) {
+  if (debug && isAdmin()) {
     debug.classList.remove('hidden');
     debug.textContent = [
       '[debug/mvp]',
       `matchId: ${state.mvp.selectedMatchId || '-'}`,
-      `authUid: ${state.sessionUser.id || '-'}`,
+      `authUid: ${getSessionUser()?.id || '-'}`,
       `lastVote: ${state.mvp.lastVotePayload || '-'}`
     ].join('\n');
   } else if (debug) {
@@ -950,11 +1053,11 @@ function renderLineupEditor() {
 }
 
 function renderAdmin() {
-  const isAdmin = state.isAdmin;
-  document.querySelector('.admin-tab').classList.toggle('hidden', !isAdmin);
-  document.querySelector('[data-view="admin"]').classList.toggle('hidden', !isAdmin);
+  const adminMode = isAdmin();
+  document.querySelector('.admin-tab').classList.toggle('hidden', !adminMode);
+  document.querySelector('[data-view="admin"]').classList.toggle('hidden', !adminMode);
 
-  if (!isAdmin) return;
+  if (!adminMode) return;
 
   const matches = getMatches();
   const players = getPlayers();
@@ -965,7 +1068,7 @@ function renderAdmin() {
 }
 
 function renderAll() {
-  $('welcomeText').textContent = `Hola, ${state.sessionUser.displayName}`;
+  $('welcomeText').textContent = `Hola, ${getSessionUser()?.displayName || 'jugador'}`;
   renderHome();
   renderConvocatoria();
   renderCalendario();
@@ -1021,49 +1124,116 @@ function generateConvImage(matchId) {
   link.click();
 }
 
+
+function openPostMatchModal(matchId) {
+  if (!isAdmin()) {
+    showToast('Solo admin', 'error');
+    return;
+  }
+  const match = getMatches().find((m) => m.id === matchId);
+  if (!match) return;
+  state.postMatchEditor.open = true;
+  state.postMatchEditor.matchId = matchId;
+  state.postMatchEditor.playerStatsDraft = Object.fromEntries(
+    getPlayers().map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
+  );
+
+  $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
+  $('postResultHome').value = match.result_home ?? '';
+  $('postResultAway').value = match.result_away ?? '';
+  $('postPlayersList').innerHTML = getPlayers().map((p) => {
+    const d = state.postMatchEditor.playerStatsDraft[p.id];
+    return `<div><strong>#${p.dorsal} ${p.name}</strong>
+      <input data-stat-player="${p.id}" data-stat-key="goals" type="number" min="0" value="${d.goals}">
+      <input data-stat-player="${p.id}" data-stat-key="assists" type="number" min="0" value="${d.assists}">
+      <input data-stat-player="${p.id}" data-stat-key="yc" type="number" min="0" value="${d.yc}">
+      <input data-stat-player="${p.id}" data-stat-key="rc" type="number" min="0" value="${d.rc}">
+      <input data-stat-player="${p.id}" data-stat-key="mvps" type="number" min="0" value="${d.mvps}"></div>`;
+  }).join('');
+
+  $('postMatchModal').showModal();
+}
+
+async function savePostMatchModal() {
+  if (!isAdmin()) {
+    showToast('Solo admin', 'error');
+    return;
+  }
+  const matchId = state.postMatchEditor.matchId;
+  const result_home = Number($('postResultHome').value);
+  const result_away = Number($('postResultAway').value);
+
+  const { error: matchError } = await supabaseClient.from('matches').update({ result_home, result_away }).eq('id', matchId);
+  if (matchError) {
+    showToast(matchError.message || 'Error guardando resultado', 'error');
+    return;
+  }
+
+  const updates = Object.entries(state.postMatchEditor.playerStatsDraft).map(([playerId, d]) => (
+    supabaseClient.from('players').update({ goals: Number(d.goals), assists: Number(d.assists), yc: Number(d.yc), rc: Number(d.rc), mvps: Number(d.mvps) }).eq('id', playerId)
+  ));
+  const results = await Promise.all(updates);
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    showToast(failed.error.message || 'Error guardando stats', 'error');
+    return;
+  }
+
+  $('postMatchModal').close();
+  await hydrateSessionData();
+  renderAll();
+  showToast('Post-partido actualizado', 'success');
+}
+
 function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
   $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
-  $('modalDetail').textContent = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} · Actualizar jueves post-partido`;
+  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
-  const isAdmin = state.isAdmin;
-  adminZone.classList.toggle('hidden', !isAdmin);
-  $('modalResultInput').value = m.result;
-  $('modalSaveResultBtn').onclick = () => {
-    const o = readJSON('matchResultsOverride', {});
-    o[m.id] = $('modalResultInput').value.trim() || '-';
-    writeJSON('matchResultsOverride', o);
-    renderAll();
-    $('matchModal').close();
-    showToast('Resultado actualizado');
-  };
+  const adminMode = isAdmin();
+  adminZone.classList.toggle('hidden', !adminMode);
+  $('openPostMatchFromModalBtn').onclick = () => openPostMatchModal(m.id);
 
   $('matchModal').showModal();
 }
 
-function applyAuthUI(sessionUser) {
-  state.sessionUser = sessionUser;
-  const loggedIn = Boolean(sessionUser);
+function applyAuthUI(session) {
+  state.session = session;
+  const loggedIn = Boolean(session?.user);
   $('loginScreen').classList.toggle('hidden', loggedIn);
   $('app').classList.toggle('hidden', !loggedIn);
 
   if (!loggedIn) {
-    state.profileFetchSucceeded = null;
+    state.profile = null;
+    state.profileStatus = 'loading';
     state.profileFetchErrorMessage = '';
+    state.pendingMatches = [];
     setProfileBanner('');
     renderAuthDebugPanel();
     window.location.hash = '#home';
     return;
   }
 
-  if (!window.location.hash) {
-    window.location.hash = '#home';
+  if (state.profileStatus !== 'ready') {
+    document.querySelector('.admin-tab')?.classList.add('hidden');
+    document.querySelector('[data-view="admin"]')?.classList.add('hidden');
   }
 
-  renderAll();
+  if (!window.location.hash) window.location.hash = '#home';
+  if (state.profileStatus === 'ready') renderAll();
+}
+
+async function hydrateSessionData() {
+  await loadData();
+  await refreshPostMatchState();
+  state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
+  await loadConvocatoriaData(state.selectedMatchId);
+  await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
+  const lineupMatchId = getMatches().find((m) => isUuid(m.id))?.id || null;
+  if (lineupMatchId) hydrateLineupEditor(lineupMatchId);
 }
 
 async function syncSession() {
@@ -1082,29 +1252,20 @@ async function syncSession() {
 
   const user = data.session?.user;
   if (!user) {
-    state.currentProfile = null;
-    state.profileFetchSucceeded = null;
+    state.profile = null;
+    state.profileStatus = 'loading';
     state.profileFetchErrorMessage = '';
     applyAuthUI(null);
     return;
   }
 
-  const profile = await fetchCurrentProfile(user.id);
-  await loadData();
-  state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
-  await loadConvocatoriaData(state.selectedMatchId);
-  await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
-  const lineupMatchId = getMatches().find((m) => isUuid(m.id))?.id || null;
-  if (lineupMatchId) hydrateLineupEditor(lineupMatchId);
-
-  applyAuthUI({
-    id: user.id,
-    email: user.email,
-    displayName: profile?.display_name || (user.email || 'jugador').split('@')[0],
-    role: profile?.role || 'player',
-    profileId: profile?.id || user.id,
-    playerId: profile?.player_id ? String(profile.player_id) : null
-  });
+  applyAuthUI(data.session);
+  await fetchCurrentProfile(user.id);
+  if (state.profileStatus !== 'ready') {
+    renderAuthDebugPanel();
+    return;
+  }
+  await hydrateSessionData();
   renderAll();
   renderAuthDebugPanel();
 }
@@ -1114,10 +1275,13 @@ function bindEvents() {
     e.preventDefault();
     $('loginError').textContent = '';
 
-    const email = $('email').value.trim();
-    const password = $('password').value.trim();
+    const creds = buildAuthCredentials();
+    if (!creds.email || !creds.password) {
+      $('loginError').textContent = 'Indica nombre/email y dorsal (o contraseña manual con email).';
+      return;
+    }
 
-    const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+    const { error } = await supabaseClient.auth.signInWithPassword(creds);
     if (error) {
       $('loginError').textContent = error.message || 'Credenciales incorrectas.';
       return;
@@ -1128,10 +1292,13 @@ function bindEvents() {
 
   $('signupBtn').addEventListener('click', async () => {
     $('loginError').textContent = '';
-    const email = $('email').value.trim();
-    const password = $('password').value.trim();
+    const creds = buildAuthCredentials();
+    if (!creds.email || !creds.password) {
+      $('loginError').textContent = 'Indica nombre/email y dorsal (o contraseña manual con email).';
+      return;
+    }
 
-    const { error } = await supabaseClient.auth.signUp({ email, password });
+    const { error } = await supabaseClient.auth.signUp(creds);
     if (error) {
       $('loginError').textContent = error.message || 'No se pudo crear la cuenta.';
       return;
@@ -1214,9 +1381,9 @@ function bindEvents() {
       const status = btn.dataset.status;
       const matchId = $('matchSelector').value;
       const mappedUserId = btn.dataset.userId;
-      const isAdmin = state.isAdmin;
-      const userId = isAdmin ? mappedUserId : state.sessionUser.id;
-      console.log('[attendance] click save context', { selectedMatchId: matchId, type: typeof matchId, isAdmin, targetUserId: userId });
+      const adminMode = isAdmin();
+      const userId = adminMode ? mappedUserId : getSessionUser()?.id;
+      console.log('[attendance] click save context', { selectedMatchId: matchId, type: typeof matchId, isAdmin: adminMode, targetUserId: userId });
 
       if (!matchId) {
         const error = { message: 'Partido no seleccionado', code: 'NO_MATCH' };
@@ -1246,7 +1413,7 @@ function bindEvents() {
         return;
       }
 
-      const canEdit = isAdmin || state.sessionUser.id === userId;
+      const canEdit = adminMode || getSessionUser()?.id === userId;
       if (!canEdit) {
         const error = { message: 'Sin permisos para editar esta fila', code: 'FORBIDDEN' };
         console.error('[attendance] error', error);
@@ -1266,6 +1433,10 @@ function bindEvents() {
 
     if (btn.dataset.action === 'open-match') {
       openMatchModal(btn.dataset.id);
+    }
+
+    if (btn.dataset.action === 'open-post-match') {
+      openPostMatchModal(btn.dataset.id);
     }
   });
 
@@ -1352,6 +1523,16 @@ function bindEvents() {
   });
 
   $('closeModalBtn').addEventListener('click', () => $('matchModal').close());
+  $('savePostMatchBtn').addEventListener('click', savePostMatchModal);
+  $('closePostMatchBtn').addEventListener('click', () => $('postMatchModal').close());
+  $('postPlayersList').addEventListener('input', (e) => {
+    const input = e.target.closest('input[data-stat-player]');
+    if (!input) return;
+    const pid = input.dataset.statPlayer;
+    const key = input.dataset.statKey;
+    if (!state.postMatchEditor.playerStatsDraft[pid]) return;
+    state.postMatchEditor.playerStatsDraft[pid][key] = Number(input.value || 0);
+  });
   window.addEventListener('hashchange', route);
 }
 
@@ -1365,28 +1546,18 @@ async function init() {
   }
 
   supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    applyAuthUI(session || null);
+
     if (!session?.user) {
-      state.currentProfile = null;
-      state.profileFetchSucceeded = null;
-      state.profileFetchErrorMessage = '';
-      applyAuthUI(null);
       return;
     }
 
-    const profile = await fetchCurrentProfile(session.user.id);
-    await loadData();
-    state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
-    await loadConvocatoriaData(state.selectedMatchId);
-    await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
-
-    applyAuthUI({
-      id: session.user.id,
-      email: session.user.email,
-      displayName: profile?.display_name || (session.user.email || 'jugador').split('@')[0],
-      role: profile?.role || 'player',
-      profileId: profile?.id || session.user.id,
-      playerId: profile?.player_id ? String(profile.player_id) : null
-    });
+    await fetchCurrentProfile(session.user.id);
+    if (state.profileStatus !== 'ready') {
+      renderAuthDebugPanel();
+      return;
+    }
+    await hydrateSessionData();
     renderAll();
     renderAuthDebugPanel();
   });
