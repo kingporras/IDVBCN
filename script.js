@@ -634,7 +634,7 @@ function renderConvocatoria() {
     $('countBajas').textContent = 'Bajas: 0';
 
     const debug = $('convocatoriaDebug');
-    if (debug && adminMode) {
+    if (debug && isDebugUIEnabled()) {
       debug.classList.remove('hidden');
       debug.textContent = [
         '[debug/convocatoria]',
@@ -671,7 +671,7 @@ function renderConvocatoria() {
     const showActions = adminMode || isOwnPlayer;
     const disabledAttr = editable ? '' : 'disabled';
 
-    const accountHint = !userId ? '<small>sin cuenta</small>' : '';
+    const accountHint = !userId && adminMode ? '<small>sin cuenta</small>' : '';
 
     return `<li>
       <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span> ${accountHint}
@@ -689,7 +689,7 @@ function renderConvocatoria() {
 
   const debug = $('convocatoriaDebug');
   if (debug) {
-    if (adminMode) {
+    if (isDebugUIEnabled()) {
       debug.classList.remove('hidden');
       debug.textContent = [
         '[debug/convocatoria]',
@@ -882,7 +882,7 @@ function renderMvp() {
   $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
 
   const debug = $('mvpDebug');
-  if (debug && isAdmin()) {
+  if (debug && isDebugUIEnabled()) {
     debug.classList.remove('hidden');
     debug.textContent = [
       '[debug/mvp]',
