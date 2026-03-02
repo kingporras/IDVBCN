@@ -1,23 +1,34 @@
+const CACHE_NAME = 'inter-app-cache-v3';
+const APP_ASSETS = [
+  './',
+  'index.html',
+  'style.css',
+  'script.js',
+  'data.json',
+  'manifest.json',
+  'escudo.png',
+  'fondo.svg'
+];
 
-self.addEventListener('install', event => {
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
-    caches.open('inter-app-cache-v2').then(cache => {
-      return cache.addAll([
-        './',
-        'index.html',
-        'style.css',
-        'script.js',
-        'data.json',
-        'manifest.json',
-        'escudo.png',
-        'fondo.svg'
-      ]);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_ASSETS))
   );
 });
 
-self.addEventListener('fetch', event => {
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) => Promise.all(
+      keys
+        .filter((key) => key !== CACHE_NAME)
+        .map((key) => caches.delete(key))
+    )).then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then(response => response || fetch(event.request))
+    caches.match(event.request).then((response) => response || fetch(event.request))
   );
 });
