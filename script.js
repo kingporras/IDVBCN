@@ -1,7 +1,7 @@
 const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const AUTH_EMAIL_DOMAIN = 'gmail.com';
+const AUTH_EMAIL_DOMAIN = '@gmail.com';
 
 const state = {
   data: null,
@@ -376,6 +376,19 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function formatMatchLabel(match) {
+  if (!match) return '-';
+  const date = new Date(match.date || Date.now()).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return `${date} · ${match.rival}${typeof match.home === 'boolean' ? ` · ${match.home ? 'Casa' : 'Fuera'}` : ''}`;
+}
+
+function formatMatchShort(match) {
+  if (!match) return '-';
+  const date = new Date(match.date || Date.now()).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+  return `${date} · ${match.rival}`;
+}
+
+
 function statusLabel(status) {
   if (status === 'yes') return '✅ Confirmado';
   if (status === 'no') return '❌ Baja';
@@ -384,32 +397,17 @@ function statusLabel(status) {
 }
 
 
-function normalizeAuthName(value) {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+function normalizeName(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 function buildAuthCredentials() {
-  const identifier = $('email').value.trim();
-  const dorsalRaw = $('dorsal')?.value?.trim() || '';
-  const manualPassword = $('password').value.trim();
-
-  if (identifier.includes('@')) {
-    if (dorsalRaw) {
-      const name = normalizeAuthName(identifier.split('@')[0]);
-      const dorsal = String(Number(dorsalRaw));
-      const base = `${name}${dorsal}`;
-      const password = base.length < 6 ? `${name}${String(dorsal).padStart(2, '0')}` : base;
-      return { email: identifier, password };
-    }
-    return { email: identifier, password: manualPassword };
-  }
-
-  const name = normalizeAuthName(identifier);
-  if (!name || !dorsalRaw) return { email: '', password: '' };
-  const dorsal = String(Number(dorsalRaw));
-  const email = `${name}@${AUTH_EMAIL_DOMAIN}`;
-  const base = `${name}${dorsal}`;
-  const password = base.length < 6 ? `${name}${String(dorsal).padStart(2, '0')}` : base;
+  const nameOrEmail = $('email')?.value?.trim() || '';
+  const password = $('password')?.value?.trim() || '';
+  if (!nameOrEmail || !password) return { email: '', password: '' };
+  const email = nameOrEmail.includes('@')
+    ? nameOrEmail
+    : `${normalizeName(nameOrEmail).replace(/\s/g, '')}${AUTH_EMAIL_DOMAIN}`;
   return { email, password };
 }
 
@@ -617,7 +615,7 @@ function renderConvocatoria() {
     return;
   }
 
-  $('matchSelector').innerHTML = uuidMatches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  $('matchSelector').innerHTML = uuidMatches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   $('matchSelector').value = state.selectedMatchId;
 
   const players = getPlayers();
@@ -745,10 +743,32 @@ function renderClub() {
     ['PJ', PJ], ['PG', PG], ['PE', PE], ['PP', PP], ['GF', GF], ['GC', GC]
   ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('');
 
-  const players = getPlayers();
-  $('squadList').innerHTML = players.length
-    ? players.map((p) => `<li><strong>#${p.dorsal} ${p.name}</strong> (${p.position}) · G:${p.stats.goles} A:${p.stats.asistencias} MVP:${p.stats.mvps}</li>`).join('')
-    : '<li>No hay jugadores cargados todavía.</li>';
+  const players = getPlayers().sort((a, b) => (a.dorsal || 999) - (b.dorsal || 999));
+  $('squadList').innerHTML = players.length ? players.map((p) => `
+    <li class="player-card">
+      <div>
+        <svg class="jersey-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M18 10l7 6h14l7-6 8 8-8 8v30H18V26l-8-8z" fill="#4DA3FF" stroke="#13324f" stroke-width="2"/><text x="32" y="42" text-anchor="middle" font-size="22" font-weight="800" fill="#fff">${p.dorsal || '-'}</text></svg>
+      </div>
+      <div>
+        <div><strong>${p.name}</strong><span class="chip">${p.position || 'N/D'}</span></div>
+        <div class="chips">
+          <span class="chip">⚽ ${p.stats.goles || 0}</span><span class="chip">🅰️ ${p.stats.asistencias || 0}</span><span class="chip">🏆 ${p.stats.mvps || 0}</span><span class="chip">🟨 ${p.stats.amarillas || 0}</span><span class="chip">🟥 ${p.stats.rojas || 0}</span>
+        </div>
+      </div>
+    </li>`).join('') : '<li>No hay jugadores cargados todavía.</li>';
+
+  if (!$('clubLinksCard')) {
+    const linksCard = document.createElement('article');
+    linksCard.id = 'clubLinksCard';
+    linksCard.className = 'card card--accent';
+    linksCard.style.setProperty('--accent-color', 'var(--dorado)');
+    linksCard.innerHTML = `<h2 class="section-title">Enlaces del club</h2><div class="link-actions"><button type="button" id="clubInstagramBtn" class="btn btn-secondary">Instagram</button><button type="button" id="clubLeagueBtn" class="btn btn-secondary">Liga (Apúntamelo)</button><button type="button" id="clubTableBtn" class="btn btn-gold">Ver clasificación</button></div>`;
+    document.querySelector('[data-view="club"]').appendChild(linksCard);
+    const url = 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0';
+    $('clubInstagramBtn')?.addEventListener('click', () => window.open('https://instagram.com/interdeverdunbcn', '_blank', 'noopener'));
+    $('clubLeagueBtn')?.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
+    $('clubTableBtn')?.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
+  }
 }
 
 
@@ -870,7 +890,7 @@ function renderMvp() {
     return;
   }
 
-  $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  $('mvpMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   $('mvpMatchSelector').value = state.mvp.selectedMatchId;
   $('mvpPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
 
@@ -1029,7 +1049,7 @@ function renderLineupEditor() {
     hydrateLineupEditor(state.lineupEditor.selectedMatchId);
   }
 
-  matchSelect.innerHTML = matches.map((m) => `<option value="${m.id}">${m.id} · ${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  matchSelect.innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   matchSelect.value = state.lineupEditor.selectedMatchId;
 
   const formation = state.lineupEditor.formation;
@@ -1054,7 +1074,7 @@ function renderLineupEditor() {
   playerSelect.innerHTML = options.join('');
   playerSelect.value = currentPlayer;
 
-  $('lineupAdminMessage').textContent = `Editando ${state.lineupEditor.selectedMatchId}`;
+  $('lineupAdminMessage').textContent = `Editando ${formatMatchShort(matches.find((m) => m.id === state.lineupEditor.selectedMatchId))}`;
   field.classList.remove('hidden');
   renderLineupField(field, state.lineupEditor.assignments, formation, {
     clickable: true,
@@ -1063,17 +1083,26 @@ function renderLineupEditor() {
 }
 
 function renderAdmin() {
+  const adminTab = document.querySelector('.admin-tab');
+  const adminView = document.querySelector('[data-view="admin"]');
   const adminMode = isAdmin();
-  document.querySelector('.admin-tab').classList.toggle('hidden', !adminMode);
-  document.querySelector('[data-view="admin"]').classList.toggle('hidden', !adminMode);
-
-  if (!adminMode) return;
+  adminTab?.classList.toggle('hidden', !adminMode);
+  adminView?.classList.toggle('hidden', !adminMode);
+  if (!adminMode || !adminView) return;
 
   const matches = getMatches();
   const players = getPlayers();
-
-  $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatDate(m.date)} · ${m.rival}</option>`).join('');
+  adminView.innerHTML = `<article class="card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="chips"><button type="button" id="quickPostBtn" class="btn btn-secondary">Post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Alineación</button><button type="button" id="quickConvBtn" class="btn btn-gold">Convocatoria</button></div></article><details class="card" open><summary>Post-partido pendiente</summary><ul id="adminPendingListAccordion" class="list"></ul></details><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details><details class="card" open><summary>Alineación por partido</summary><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></details>`;
+  $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   $('adminPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
+  $('adminPendingListAccordion').innerHTML = state.pendingMatches.length ? state.pendingMatches.map((m) => `<li><button class="btn btn-secondary" type="button" data-action="admin-open-postmatch" data-id="${m.id}">${formatMatchShort(m)}</button></li>`).join('') : '<li class="muted">Sin pendientes.</li>';
+  $('quickPostBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
+  $('quickLineupBtn')?.addEventListener('click', () => window.location.hash = '#admin');
+  $('quickConvBtn')?.addEventListener('click', () => window.location.hash = '#convocatoria');
+  $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value); renderLineupEditor(); });
+  $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
+  $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => { assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value); renderLineupEditor(); });
+  $('saveLineupBtn')?.addEventListener('click', async () => { const matchId = state.lineupEditor.selectedMatchId; const formation = state.lineupEditor.formation; const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation); const ok = await saveLineupForMatch(matchId, assignments); if (!ok) return; hydrateLineupEditor(matchId); renderLineupEditor(); renderHome(); showToast('Alineación guardada', 'success'); });
   renderLineupEditor();
 }
 
@@ -1096,42 +1125,47 @@ function showToast(text, type = "info") {
   setTimeout(() => t.classList.remove('show'), 1600);
 }
 
-function generateConvImage(matchId) {
+async function generateInstagramPoster(matchId) {
   const match = getMatches().find((m) => m.id === matchId);
-  if (!match) return;
-  const players = getPlayers();
-  const confirmed = players.filter((p) => getConvocatoriaStatusForPlayer(p.id) === 'yes');
-
+  if (!match || !supabaseClient) return;
+  const [{ data: attendanceRows }, { data: lineupRows }] = await Promise.all([
+    supabaseClient.from('attendance').select('status').eq('match_id', matchId),
+    supabaseClient.from('lineups').select('player_id,position_slot').eq('match_id', matchId)
+  ]);
+  const totals = { yes: 0, maybe: 0, no: 0 };
+  (attendanceRows || []).forEach((r) => { const k = normalizeAttendanceStatus(r.status); if (totals[k] !== undefined) totals[k] += 1; });
+  const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
   const canvas = document.createElement('canvas');
-  canvas.width = 1080;
-  canvas.height = 1350;
+  canvas.width = 1080; canvas.height = 1350;
   const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#FFFFFF';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#4DA3FF';
-  ctx.fillRect(0, 0, canvas.width, 180);
-  ctx.fillStyle = '#D4AF37';
-  ctx.font = 'bold 56px Arial';
-  ctx.fillText('EL INTER DE VERDUN', 60, 100);
-  ctx.fillStyle = '#13324f';
-  ctx.font = 'bold 44px Arial';
-  ctx.fillText(`vs ${match.rival}`, 60, 250);
-  ctx.font = '32px Arial';
-  ctx.fillText(formatDate(match.date), 60, 300);
-  ctx.fillText('Confirmados:', 60, 380);
-
-  ctx.font = '30px Arial';
-  let y = 440;
-  confirmed.forEach((p, i) => {
-    ctx.fillText(`${i + 1}. ${p.name}`, 80, y);
-    y += 44;
-  });
-
+  const bg = new Image(); bg.src = 'fondo.svg';
+  await new Promise((resolve) => { bg.onload = resolve; bg.onerror = resolve; });
+  ctx.drawImage(bg, 0, 0, 1080, 1350);
+  const grad = ctx.createLinearGradient(0, 0, 0, 1350); grad.addColorStop(0, 'rgba(255,255,255,.82)'); grad.addColorStop(1, 'rgba(9,31,53,.86)');
+  ctx.fillStyle = grad; ctx.fillRect(0, 0, 1080, 1350);
+  ctx.fillStyle = '#13324f'; ctx.font = 'bold 74px Arial'; ctx.fillText('CONVOCATORIA', 80, 120);
+  ctx.font = 'bold 64px Arial'; ctx.fillText(`VS ${match.rival}`, 80, 230);
+  ctx.font = '42px Arial'; ctx.fillText(formatDate(match.date), 80, 290);
+  ctx.fillStyle = '#D4AF37'; ctx.fillRect(80, 318, 220, 50);
+  ctx.fillStyle = '#13324f'; ctx.font = 'bold 30px Arial'; ctx.fillText(match.home ? 'CASA' : 'FUERA', 120, 353);
+  ctx.fillStyle = '#eaf3ff'; ctx.font = '30px Arial'; ctx.fillText(match.venue || 'Velòdrom F7', 320, 353);
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Arial'; ctx.fillText(`Confirmados: ${totals.yes}`, 80, 440); ctx.fillText(`Dudas: ${totals.maybe}`, 80, 500); ctx.fillText(`Bajas: ${totals.no}`, 80, 560);
+  ctx.fillStyle = '#1f7f3b'; ctx.fillRect(80, 620, 920, 520); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(100, 640, 880, 480);
+  if (lineupRows?.length) {
+    const slots = lineupRows.slice(0, 8); const points = [[540,1060],[350,970],[730,970],[280,850],[540,840],[800,850],[420,730],[660,730]];
+    slots.forEach((slot, i) => { const p = playersById[String(slot.player_id)]; const [x,y] = points[i] || [540,900]; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 44, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#13324f'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center'; ctx.fillText(`#${p?.dorsal || '-'}`, x, y - 5); ctx.font = '18px Arial'; ctx.fillText((p?.name || slot.position_slot || '').slice(0, 10), x, y + 22); });
+    ctx.textAlign = 'start';
+  } else { ctx.fillStyle = '#fff'; ctx.font = 'bold 42px Arial'; ctx.fillText('Alineación por confirmar', 250, 900); }
+  ctx.fillStyle = '#D4AF37'; ctx.fillRect(80, 1220, 920, 4); ctx.fillStyle = '#fff'; ctx.font = '32px Arial'; ctx.fillText('@interdeverdunbcn  #InterDeVerdun', 80, 1280);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) return;
+  const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = canvas.toDataURL('image/png');
-  link.download = `convocatoria-${match.id}.png`;
+  const datePart = new Date(match.date || Date.now()).toISOString().slice(0, 10);
+  link.href = url;
+  link.download = `convocatoria_${datePart}_${String(match.rival || 'rival').replace(/\s+/g, '_').toLowerCase()}.png`;
   link.click();
+  URL.revokeObjectURL(url);
 }
 
 
@@ -1281,17 +1315,23 @@ async function syncSession() {
 }
 
 function bindEvents() {
+  $('signupBtn')?.classList.toggle('hidden', !isDebugUIEnabled());
   $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('loginError').textContent = '';
 
     const creds = buildAuthCredentials();
     if (!creds.email || !creds.password) {
-      $('loginError').textContent = 'Indica nombre/email y dorsal (o contraseña manual con email).';
+      $('loginError').textContent = 'Indica nombre/email y contraseña.';
       return;
     }
 
+    const submitBtn = $('loginSubmitBtn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Entrando...';
     const { error } = await supabaseClient.auth.signInWithPassword(creds);
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Entrar';
     if (error) {
       $('loginError').textContent = error.message || 'Credenciales incorrectas.';
       return;
@@ -1300,11 +1340,11 @@ function bindEvents() {
     await syncSession();
   });
 
-  $('signupBtn').addEventListener('click', async () => {
+  $('signupBtn')?.addEventListener('click', async () => {
     $('loginError').textContent = '';
     const creds = buildAuthCredentials();
     if (!creds.email || !creds.password) {
-      $('loginError').textContent = 'Indica nombre/email y dorsal (o contraseña manual con email).';
+      $('loginError').textContent = 'Indica nombre/email y contraseña.';
       return;
     }
 
@@ -1334,34 +1374,6 @@ function bindEvents() {
     console.log('[attendance] match change', state.selectedMatchId, typeof state.selectedMatchId);
     await loadConvocatoriaData(state.selectedMatchId);
     renderConvocatoria();
-  });
-
-  $('lineupMatchSelector')?.addEventListener('change', (e) => {
-    hydrateLineupEditor(e.target.value);
-    renderLineupEditor();
-  });
-
-  $('lineupSlotSelector')?.addEventListener('change', (e) => {
-    state.lineupEditor.selectedSlot = e.target.value;
-    renderLineupEditor();
-  });
-
-  $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => {
-    assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value);
-    renderLineupEditor();
-  });
-
-  $('saveLineupBtn')?.addEventListener('click', async () => {
-    const matchId = state.lineupEditor.selectedMatchId;
-    const formation = state.lineupEditor.formation;
-    const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation);
-    const ok = await saveLineupForMatch(matchId, assignments);
-    if (!ok) return;
-
-    hydrateLineupEditor(matchId);
-    renderLineupEditor();
-    renderHome();
-    showToast('Alineación guardada', 'success');
   });
 
   document.addEventListener('click', async (e) => {
@@ -1447,11 +1459,16 @@ function bindEvents() {
 
     if (btn.dataset.action === 'open-post-match') {
       openPostMatchModal(btn.dataset.id);
+      return;
+    }
+
+    if (btn.dataset.action === 'admin-open-postmatch') {
+      openPostMatchModal(btn.dataset.id);
+      return;
     }
   });
 
-  $('generateImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId));
-  $('adminImageBtn').addEventListener('click', () => generateConvImage(state.selectedMatchId || getUpcomingMatch()?.id));
+  $('generateImageBtn').addEventListener('click', () => generateInstagramPoster(state.selectedMatchId));
 
   $('mvpMatchSelector').addEventListener('change', async (e) => {
     state.mvp.selectedMatchId = e.target.value;
@@ -1487,40 +1504,42 @@ function bindEvents() {
     renderHome();
   });
 
-  $('resultForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const id = $('adminMatchSelector').value;
-    const o = readJSON('matchResultsOverride', {});
-    o[id] = $('adminResult').value.trim() || '-';
-    writeJSON('matchResultsOverride', o);
-    renderAll();
-    showToast('Resultado guardado');
+  document.addEventListener('submit', (e) => {
+    if (e.target?.id === 'resultForm') {
+      e.preventDefault();
+      const id = $('adminMatchSelector')?.value;
+      const o = readJSON('matchResultsOverride', {});
+      o[id] = $('adminResult')?.value?.trim() || '-';
+      writeJSON('matchResultsOverride', o);
+      renderAll();
+      showToast('Resultado guardado');
+    }
+    if (e.target?.id === 'playerStatsForm') {
+      e.preventDefault();
+      const id = $('adminPlayerSelector')?.value;
+      const o = readJSON('playerStatsOverride', {});
+      o[id] = {
+        goles: Number($('sGoles')?.value || 0),
+        asistencias: Number($('sAsist')?.value || 0),
+        amarillas: Number($('sAma')?.value || 0),
+        rojas: Number($('sRojas')?.value || 0),
+        mvps: Number($('sMvps')?.value || 0)
+      };
+      writeJSON('playerStatsOverride', o);
+      renderAll();
+      showToast('Stats actualizadas');
+    }
   });
 
-  $('adminPlayerSelector').addEventListener('change', (e) => {
+  document.addEventListener('change', (e) => {
+    if (e.target?.id !== 'adminPlayerSelector') return;
     const p = getPlayers().find((x) => x.id === e.target.value);
     if (!p) return;
-    $('sGoles').value = p.stats.goles;
-    $('sAsist').value = p.stats.asistencias;
-    $('sAma').value = p.stats.amarillas;
-    $('sRojas').value = p.stats.rojas;
-    $('sMvps').value = p.stats.mvps;
-  });
-
-  $('playerStatsForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const id = $('adminPlayerSelector').value;
-    const o = readJSON('playerStatsOverride', {});
-    o[id] = {
-      goles: Number($('sGoles').value),
-      asistencias: Number($('sAsist').value),
-      amarillas: Number($('sAma').value),
-      rojas: Number($('sRojas').value),
-      mvps: Number($('sMvps').value)
-    };
-    writeJSON('playerStatsOverride', o);
-    renderAll();
-    showToast('Stats actualizadas');
+    if ($('sGoles')) $('sGoles').value = p.stats.goles;
+    if ($('sAsist')) $('sAsist').value = p.stats.asistencias;
+    if ($('sAma')) $('sAma').value = p.stats.amarillas;
+    if ($('sRojas')) $('sRojas').value = p.stats.rojas;
+    if ($('sMvps')) $('sMvps').value = p.stats.mvps;
   });
 
   $('closeModalBtn').addEventListener('click', () => $('matchModal').close());

@@ -13,62 +13,60 @@
     <form id="loginForm" class="card login-card">
       <img src="escudo.png" alt="Escudo del club" class="logo" />
       <h1>EL INTER DE VERDUN</h1>
-      <p>Inicia sesión para entrar a la app</p>
+      <p class="muted">Inicia sesión para entrar a la app</p>
       <label for="email">Nombre o email</label>
-      <input id="email" type="text" required autocomplete="username" />
-      <label for="dorsal">Dorsal</label>
-      <input id="dorsal" type="number" min="0" placeholder="Ej: 4" />
-      <label for="password">Contraseña manual (opcional con email)</label>
-      <input id="password" type="password" autocomplete="current-password" />
-      <button type="submit">Entrar</button>
-      <button id="signupBtn" type="button" class="ghost">Crear cuenta (test admin)</button>
-      <small>Usa tu cuenta de Supabase Auth (email + contraseña).</small>
+      <input id="email" class="input" type="text" required autocomplete="username" placeholder="Ej: porras o porras@gmail.com" />
+      <label for="password">Contraseña</label>
+      <input id="password" class="input" type="password" required autocomplete="current-password" />
+      <button id="loginSubmitBtn" type="submit" class="btn btn-primary">Entrar</button>
+      <button id="signupBtn" type="button" class="ghost hidden">Crear cuenta (test admin)</button>
+      <small class="muted">Usa tu cuenta de Supabase Auth.</small>
       <p id="loginError" class="error"></p>
     </form>
   </div>
 
   <div id="app" class="app-shell hidden">
-    <header class="topbar">
+    <header class="topbar header-pill">
       <img src="escudo.png" alt="Escudo" class="topbar-logo" />
       <div>
         <strong>EL INTER DE VERDUN</strong>
         <p id="welcomeText">Hola</p>
       </div>
-      <button id="logoutBtn" class="ghost">Salir</button>
+      <button id="logoutBtn" class="btn btn-secondary">Salir</button>
     </header>
 
     <main>
       <section class="view" data-view="home">
-        <article class="card">
-          <h2>Mis estadísticas</h2>
+        <article class="card card--accent" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Mis estadísticas</h2>
           <div id="myStats" class="stats-grid"></div>
         </article>
-        <article id="adminPendingCard" class="card hidden">
-          <h2>Post-partido pendiente</h2>
+        <article id="adminPendingCard" class="card card--accent hidden" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Post-partido pendiente</h2>
           <ul id="adminPendingList" class="list"></ul>
         </article>
-        <article class="card">
-          <h2>Próximo partido</h2>
+        <article class="card card--accent" style="--accent-color: #6cb6ff">
+          <h2 class="section-title">Próximo partido</h2>
           <p id="nextMatchText"></p>
           <small id="homePendingHint"></small>
-          <button id="goConfirmBtn">Confirmar asistencia</button>
+          <button id="goConfirmBtn" class="btn btn-primary">Confirmar asistencia</button>
         </article>
-        <article class="card">
-          <h2>Top MVP</h2>
+        <article class="card card--accent" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Top MVP</h2>
           <ol id="topMvpList"></ol>
         </article>
-        <article class="card">
-          <h2>Alineación</h2>
+        <article class="card card--accent" style="--accent-color: #4ecf8f">
+          <h2 class="section-title">Alineación</h2>
           <p id="lineupHomeMessage" class="lineup-message">Sin alineación definida</p>
           <div id="lineupFieldHome" class="lineup-field hidden"></div>
         </article>
       </section>
 
       <section class="view" data-view="convocatoria">
-        <article class="card">
-          <h2>Convocatoria</h2>
+        <article class="card card--accent" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Convocatoria</h2>
           <label for="matchSelector">Partido</label>
-          <select id="matchSelector"></select>
+          <select id="matchSelector" class="input"></select>
           <div class="chips">
             <span id="countConfirmados" class="chip"></span>
             <span id="countPendientes" class="chip"></span>
@@ -76,89 +74,51 @@
           </div>
           <pre id="convocatoriaDebug" class="hidden" style="white-space:pre-wrap;font-size:.8rem;background:#0b2035;color:#d6ecff;padding:.5rem;border-radius:.5rem"></pre>
           <ul id="attendanceList" class="list"></ul>
-          <button id="generateImageBtn">Generar imagen convocatoria</button>
+          <button id="generateImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
         </article>
       </section>
 
       <section class="view" data-view="calendario">
-        <article class="card">
-          <h2>Calendario (Fútbol 7)</h2>
-          <p>Resultados: actualizar cada jueves después del partido.</p>
+        <article class="card card--accent" style="--accent-color: #7fb8ff">
+          <h2 class="section-title">Calendario (Fútbol 7)</h2>
+          <p class="muted">Resultados: actualizar cada jueves después del partido.</p>
           <ul id="calendarList" class="list"></ul>
         </article>
       </section>
 
       <section class="view" data-view="club">
-        <article class="card">
-          <h2>Estadísticas globales</h2>
+        <article class="card card--accent" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Estadísticas globales</h2>
           <div id="clubStats" class="stats-grid"></div>
         </article>
-        <article class="card">
-          <h2>Plantilla</h2>
+        <article class="card card--accent" style="--accent-color: #4ecf8f">
+          <h2 class="section-title">Plantilla</h2>
           <ul id="squadList" class="list"></ul>
         </article>
       </section>
 
       <section class="view" data-view="mvp">
-        <article class="card">
-          <h2>Votación MVP</h2>
+        <article class="card card--accent" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Votación MVP</h2>
           <p class="banner">🏆 El que más MVP gana premio</p>
           <label for="mvpMatchSelector">Partido</label>
-          <select id="mvpMatchSelector"></select>
+          <select id="mvpMatchSelector" class="input"></select>
           <label for="mvpPlayerSelector">Jugador</label>
-          <select id="mvpPlayerSelector"></select>
-          <button id="voteBtn">Votar MVP</button>
+          <select id="mvpPlayerSelector" class="input"></select>
+          <button id="voteBtn" class="btn btn-primary">Votar MVP</button>
           <p id="voteMessage"></p>
           <pre id="mvpDebug" class="hidden" style="white-space:pre-wrap;font-size:.8rem;background:#0b2035;color:#d6ecff;padding:.5rem;border-radius:.5rem"></pre>
         </article>
-        <article class="card">
-          <h2>Ranking total MVP</h2>
+        <article class="card card--accent" style="--accent-color: #ffd76f">
+          <h2 class="section-title">Ranking total MVP</h2>
           <ol id="mvpRankingList"></ol>
         </article>
       </section>
 
-      <section class="view" data-view="admin">
-        <article class="card">
-          <h2>Editar resultado</h2>
-          <form id="resultForm">
-            <select id="adminMatchSelector"></select>
-            <input id="adminResult" placeholder="Ej: 2-1 o -" required />
-            <button type="submit">Guardar resultado</button>
-          </form>
-        </article>
-        <article class="card">
-          <h2>Editar stats jugador</h2>
-          <form id="playerStatsForm">
-            <select id="adminPlayerSelector"></select>
-            <input id="sGoles" type="number" min="0" placeholder="Goles" required />
-            <input id="sAsist" type="number" min="0" placeholder="Asistencias" required />
-            <input id="sAma" type="number" min="0" placeholder="Amarillas" required />
-            <input id="sRojas" type="number" min="0" placeholder="Rojas" required />
-            <input id="sMvps" type="number" min="0" placeholder="MVPs base" required />
-            <button type="submit">Guardar stats</button>
-          </form>
-          <button id="adminImageBtn">Generar imagen convocatoria</button>
-        </article>
-        <article class="card">
-          <h2>Alineación por partido</h2>
-          <label for="lineupMatchSelector">Partido</label>
-          <select id="lineupMatchSelector"></select>
-          <div id="lineupFormationToggle" class="formation-toggle">
-            <button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button>
-            <button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button>
-          </div>
-          <p id="lineupAdminMessage" class="lineup-message"></p>
-          <div id="lineupFieldAdmin" class="lineup-field hidden"></div>
-          <label for="lineupSlotSelector">Slot</label>
-          <select id="lineupSlotSelector"></select>
-          <label for="lineupPlayerSelectorForSlot">Jugador</label>
-          <select id="lineupPlayerSelectorForSlot"></select>
-          <button id="saveLineupBtn" type="button">Guardar alineación</button>
-        </article>
-      </section>
+      <section class="view" data-view="admin"></section>
     </main>
 
-    <nav class="bottom-nav" aria-label="Navegación principal">
+    <nav class="bottom-nav pill" aria-label="Navegación principal">
       <a href="#home" data-tab="home">🏠<span>Home</span></a>
       <a href="#convocatoria" data-tab="convocatoria">📣<span>Conv</span></a>
       <a href="#calendario" data-tab="calendario">🗓️<span>Cal</span></a>
@@ -178,20 +138,20 @@
         <div id="lineupFieldModal" class="lineup-field hidden"></div>
       </div>
       <div id="modalAdminEdit" class="hidden">
-        <button id="openPostMatchFromModalBtn" type="button">Actualizar ahora</button>
+        <button id="openPostMatchFromModalBtn" type="button" class="btn btn-primary">Actualizar ahora</button>
       </div>
-      <button id="closeModalBtn" class="ghost">Cerrar</button>
+      <button id="closeModalBtn" class="btn btn-secondary">Cerrar</button>
     </article>
   </dialog>
 
   <dialog id="postMatchModal">
     <article class="card">
       <h3 id="postMatchTitle">Post-partido</h3>
-      <label>Resultado local</label><input id="postResultHome" type="number" min="0" />
-      <label>Resultado rival</label><input id="postResultAway" type="number" min="0" />
+      <label>Resultado local</label><input id="postResultHome" class="input" type="number" min="0" />
+      <label>Resultado rival</label><input id="postResultAway" class="input" type="number" min="0" />
       <div id="postPlayersList" class="list"></div>
-      <button id="savePostMatchBtn" type="button">Guardar post-partido</button>
-      <button id="closePostMatchBtn" type="button" class="ghost">Cerrar</button>
+      <button id="savePostMatchBtn" type="button" class="btn btn-primary">Guardar post-partido</button>
+      <button id="closePostMatchBtn" type="button" class="btn btn-secondary">Cerrar</button>
     </article>
   </dialog>
 
