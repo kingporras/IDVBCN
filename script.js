@@ -1,7 +1,6 @@
 const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
-const DEBUG_AUTH = true;
 const AUTH_EMAIL_DOMAIN = 'gmail.com';
 
 const state = {
@@ -476,6 +475,11 @@ function refreshAdminUI() {
   renderAuthDebugPanel();
 }
 
+function isDebugUIEnabled() {
+  const qs = new URLSearchParams(location.search);
+  return qs.get('debug') === '1' || localStorage.getItem('IDV_DEBUG') === '1';
+}
+
 async function fetchCurrentProfile(userId) {
   state.profileStatus = 'loading';
   state.profile = null;
@@ -505,7 +509,7 @@ async function fetchCurrentProfile(userId) {
   state.profileStatus = 'ready';
   state.profileFetchErrorMessage = '';
   setProfileBanner('');
-  if (DEBUG_AUTH) {
+  if (isDebugUIEnabled()) {
     console.log('[auth-debug] session.user.id:', userId, 'profile.role:', profile.role);
   }
   refreshAdminUI();
@@ -517,9 +521,15 @@ function renderAuthDebugPanel() {
   const app = $('app');
   if (!app) return;
 
+  const debugEnabled = isDebugUIEnabled();
+  if (!debugEnabled) {
+    $('authDebugPanel')?.remove();
+    return;
+  }
+
   let panel = $('authDebugPanel');
   if (!state.session?.user) {
-    if (panel) panel.classList.add('hidden');
+    if (panel) panel.remove();
     return;
   }
 
@@ -1475,15 +1485,6 @@ function bindEvents() {
     $('voteMessage').textContent = 'Voto registrado.';
     renderMvp();
     renderHome();
-  });
-
-  $('emailForm').addEventListener('submit', (e) => {
-    e.preventDefault();
-    const log = readJSON('emailLog', []);
-    log.push({ subject: $('emailSubject').value, body: $('emailBody').value, date: new Date().toISOString() });
-    writeJSON('emailLog', log);
-    e.target.reset();
-    showToast('Email enviado (mock)');
   });
 
   $('resultForm').addEventListener('submit', (e) => {
