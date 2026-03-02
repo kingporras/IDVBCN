@@ -1,9 +1,12 @@
 :root {
-  --club-blue: #4DA3FF;
+  --celeste: #4DA3FF;
+  --dorado: #D4AF37;
+  --navyText: #13324f;
+  --club-blue: var(--celeste);
   --club-white: #FFFFFF;
-  --club-gold: #D4AF37;
+  --club-gold: var(--dorado);
   --bg: #f3f8ff;
-  --text: #13324f;
+  --text: var(--navyText);
   --muted: #6b7d90;
   --radius: 14px;
 }
@@ -13,7 +16,7 @@
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-  background: #8fc4e8 url('fondo.svg') center top / cover no-repeat fixed;
+  background: #dff1ff url('fondo.svg') center top / cover no-repeat fixed;
   color: var(--text);
 }
 
@@ -40,6 +43,8 @@ body {
 }
 
 .topbar-logo, .logo { width: 38px; height: 38px; object-fit: contain; }
+
+.badge.pending { background: #fff3cd; border: 1px solid #f0cf69; color: #7a5b00; }
 .topbar p { margin: 0; font-size: 0.8rem; color: var(--muted); }
 
 main { padding: 12px 12px 90px; }
@@ -212,10 +217,10 @@ dialog {
   background:
     repeating-linear-gradient(
       to bottom,
-      #4ca8e8 0,
-      #4ca8e8 36px,
-      #57b3ef 36px,
-      #57b3ef 72px
+      #33a553 0,
+      #33a553 36px,
+      #2f9349 36px,
+      #2f9349 72px
     );
   overflow: hidden;
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35);
