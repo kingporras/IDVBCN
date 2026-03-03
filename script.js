@@ -1103,6 +1103,14 @@ function renderAdmin() {
   $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
   $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => { assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value); renderLineupEditor(); });
   $('saveLineupBtn')?.addEventListener('click', async () => { const matchId = state.lineupEditor.selectedMatchId; const formation = state.lineupEditor.formation; const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation); const ok = await saveLineupForMatch(matchId, assignments); if (!ok) return; hydrateLineupEditor(matchId); renderLineupEditor(); renderHome(); showToast('Alineación guardada', 'success'); });
+  const adminImageBtn = $('adminImageBtn');
+  if (adminImageBtn) {
+    adminImageBtn.onclick = () => {
+      const id = state.selectedMatchId || getUpcomingMatch?.()?.id;
+      if (!id) return showToastOrAlert('No hay partido seleccionado ni próximo partido disponible', 'error');
+      generateInstagramPoster(id);
+    };
+  }
   renderLineupEditor();
 }
 
@@ -1125,47 +1133,301 @@ function showToast(text, type = "info") {
   setTimeout(() => t.classList.remove('show'), 1600);
 }
 
+function showToastOrAlert(text, type = 'info') {
+  if ($('toast')) {
+    showToast(text, type);
+    return;
+  }
+  alert(text);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function drawRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width / 2, height / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + width - r, y);
+  ctx.arcTo(x + width, y, x + width, y + r, r);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.arcTo(x + width, y + height, x + width - r, y + height, r);
+  ctx.lineTo(x + r, y + height);
+  ctx.arcTo(x, y + height, x, y + height - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
+}
+
 async function generateInstagramPoster(matchId) {
   const match = getMatches().find((m) => m.id === matchId);
-  if (!match || !supabaseClient) return;
-  const [{ data: attendanceRows }, { data: lineupRows }] = await Promise.all([
-    supabaseClient.from('attendance').select('status').eq('match_id', matchId),
-    supabaseClient.from('lineups').select('player_id,position_slot').eq('match_id', matchId)
-  ]);
+  if (!match) {
+    showToastOrAlert('Selecciona un partido para generar el cartel', 'error');
+    return;
+  }
+
+  let attendanceRows = [];
+  let lineupRows = [];
+  try {
+    if (supabaseClient && isUuid(matchId)) {
+      const [attendanceRes, lineupsRes] = await Promise.all([
+        supabaseClient.from('attendance').select('status').eq('match_id', matchId),
+        supabaseClient.from('lineups').select('player_id,position_slot').eq('match_id', matchId)
+      ]);
+      attendanceRows = attendanceRes?.data || [];
+      lineupRows = lineupsRes?.data || [];
+    }
+  } catch (error) {
+    console.warn('[poster] fallback local data', error);
+  }
+
+  if (!lineupRows.length && state.lineupsByMatch?.[matchId]) {
+    lineupRows = Object.entries(state.lineupsByMatch[matchId]).map(([position_slot, player_id]) => ({ position_slot, player_id }));
+  }
+
   const totals = { yes: 0, maybe: 0, no: 0 };
   (attendanceRows || []).forEach((r) => { const k = normalizeAttendanceStatus(r.status); if (totals[k] !== undefined) totals[k] += 1; });
   const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
   const canvas = document.createElement('canvas');
   canvas.width = 1080; canvas.height = 1350;
   const ctx = canvas.getContext('2d');
-  const bg = new Image(); bg.src = 'fondo.svg';
-  await new Promise((resolve) => { bg.onload = resolve; bg.onerror = resolve; });
-  ctx.drawImage(bg, 0, 0, 1080, 1350);
-  const grad = ctx.createLinearGradient(0, 0, 0, 1350); grad.addColorStop(0, 'rgba(255,255,255,.82)'); grad.addColorStop(1, 'rgba(9,31,53,.86)');
-  ctx.fillStyle = grad; ctx.fillRect(0, 0, 1080, 1350);
-  ctx.fillStyle = '#13324f'; ctx.font = 'bold 74px Arial'; ctx.fillText('CONVOCATORIA', 80, 120);
-  ctx.font = 'bold 64px Arial'; ctx.fillText(`VS ${match.rival}`, 80, 230);
-  ctx.font = '42px Arial'; ctx.fillText(formatDate(match.date), 80, 290);
-  ctx.fillStyle = '#D4AF37'; ctx.fillRect(80, 318, 220, 50);
-  ctx.fillStyle = '#13324f'; ctx.font = 'bold 30px Arial'; ctx.fillText(match.home ? 'CASA' : 'FUERA', 120, 353);
-  ctx.fillStyle = '#eaf3ff'; ctx.font = '30px Arial'; ctx.fillText(match.venue || 'Velòdrom F7', 320, 353);
-  ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Arial'; ctx.fillText(`Confirmados: ${totals.yes}`, 80, 440); ctx.fillText(`Dudas: ${totals.maybe}`, 80, 500); ctx.fillText(`Bajas: ${totals.no}`, 80, 560);
-  ctx.fillStyle = '#1f7f3b'; ctx.fillRect(80, 620, 920, 520); ctx.strokeStyle = '#fff'; ctx.lineWidth = 4; ctx.strokeRect(100, 640, 880, 480);
+
+  const dateObj = match.date ? new Date(match.date) : new Date();
+  const formattedDate = dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' });
+  const formattedTime = dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const opponent = match.rival || 'Rival por confirmar';
+  const venue = match.venue || 'Campo por confirmar';
+
+  let bgImg = null;
+  let crestImg = null;
+  let imageLoadFailed = false;
+  try {
+    bgImg = await loadImage('fondo.svg');
+  } catch (error) {
+    imageLoadFailed = true;
+    console.warn('[poster] no se pudo cargar fondo.svg', error);
+  }
+  try {
+    crestImg = await loadImage('escudo.png');
+  } catch (error) {
+    imageLoadFailed = true;
+    console.warn('[poster] no se pudo cargar escudo.png', error);
+  }
+
+  ctx.fillStyle = '#0d2138';
+  ctx.fillRect(0, 0, 1080, 1350);
+  if (bgImg) ctx.drawImage(bgImg, 0, 0, 1080, 1350);
+  ctx.fillStyle = 'rgba(255,255,255,0.74)';
+  ctx.fillRect(0, 0, 1080, 1350);
+
+  if (crestImg) {
+    ctx.save();
+    ctx.globalAlpha = 0.06;
+    ctx.drawImage(crestImg, 220, 260, 640, 640);
+    ctx.restore();
+  }
+
+  drawRoundedRect(ctx, 56, 50, 968, 220, 42);
+  ctx.fillStyle = 'rgba(255,255,255,0.78)';
+  ctx.fill();
+
+  if (crestImg) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(19,50,79,0.35)';
+    ctx.shadowBlur = 22;
+    ctx.drawImage(crestImg, 95, 78, 160, 160);
+    ctx.restore();
+    ctx.strokeStyle = '#D4AF37';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.arc(175, 158, 88, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = '#13324f';
+  ctx.font = '700 76px Arial';
+  ctx.fillText('CONVOCATORIA', 292, 148);
+  ctx.font = '600 38px Arial';
+  ctx.fillStyle = '#1e496f';
+  ctx.fillText('EL INTER DE VERDUN', 292, 198);
+  ctx.fillStyle = '#D4AF37';
+  ctx.fillRect(292, 218, 640, 4);
+
+  ctx.fillStyle = '#0f2c46';
+  ctx.textAlign = 'center';
+  ctx.font = '800 92px Arial';
+  ctx.fillText(`VS ${String(opponent).toUpperCase()}`, 540, 370);
+  ctx.font = '600 42px Arial';
+  ctx.fillStyle = '#1a4265';
+  ctx.fillText(`${formattedDate} · ${formattedTime}h`, 540, 430);
+
+  drawRoundedRect(ctx, 400, 458, 280, 66, 33);
+  ctx.fillStyle = '#87d9ff';
+  ctx.fill();
+  ctx.fillStyle = '#13324f';
+  ctx.font = '700 36px Arial';
+  ctx.fillText(match.home ? 'CASA' : 'FUERA', 540, 504);
+  ctx.fillStyle = '#173f61';
+  ctx.font = '500 32px Arial';
+  ctx.fillText(venue, 540, 560);
+
+  ctx.textAlign = 'start';
+  const chips = [
+    { label: `✅ Confirmados ${totals.yes}`, color: '#2a8d49' },
+    { label: `❔ Dudas ${totals.maybe}`, color: '#c68d1f' },
+    { label: `❌ Bajas ${totals.no}`, color: '#b83c3c' }
+  ];
+  chips.forEach((chip, index) => {
+    const y = 620 + index * 66;
+    drawRoundedRect(ctx, 86, y, 430, 52, 26);
+    ctx.fillStyle = chip.color;
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 28px Arial';
+    ctx.fillText(chip.label, 112, y + 34);
+  });
+
+  ctx.fillStyle = '#1f7f3b';
+  drawRoundedRect(ctx, 80, 760, 920, 430, 36);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.strokeRect(118, 790, 844, 370);
+  ctx.beginPath();
+  ctx.moveTo(540, 790);
+  ctx.lineTo(540, 1160);
+  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(540, 975, 58, 0, Math.PI * 2);
+  ctx.stroke();
+
   if (lineupRows?.length) {
-    const slots = lineupRows.slice(0, 8); const points = [[540,1060],[350,970],[730,970],[280,850],[540,840],[800,850],[420,730],[660,730]];
-    slots.forEach((slot, i) => { const p = playersById[String(slot.player_id)]; const [x,y] = points[i] || [540,900]; ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 44, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#13324f'; ctx.font = 'bold 24px Arial'; ctx.textAlign = 'center'; ctx.fillText(`#${p?.dorsal || '-'}`, x, y - 5); ctx.font = '18px Arial'; ctx.fillText((p?.name || slot.position_slot || '').slice(0, 10), x, y + 22); });
+    const slotCoords = {
+      GK: [540, 1130],
+      D1: [330, 1020],
+      D2: [540, 1010],
+      D3: [750, 1020],
+      M1: [300, 910],
+      M2: [540, 900],
+      M3: [780, 910],
+      F1: [540, 800]
+    };
+    const normalizedRows = lineupRows
+      .filter((row) => row?.position_slot && row?.player_id)
+      .sort((a, b) => String(a.position_slot).localeCompare(String(b.position_slot)));
+
+    normalizedRows.slice(0, 8).forEach((slot, i) => {
+      const p = playersById[String(slot.player_id)];
+      const [x, y] = slotCoords[String(slot.position_slot)] || [540, 960];
+      const shortName = (p?.name || String(slot.position_slot)).split(' ')[0].slice(0, 11);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(x, y, 46, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#13324f';
+      ctx.font = '700 24px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`#${p?.dorsal || i + 1}`, x, y - 7);
+      ctx.font = '18px Arial';
+      ctx.fillText(shortName, x, y + 20);
+    });
     ctx.textAlign = 'start';
-  } else { ctx.fillStyle = '#fff'; ctx.font = 'bold 42px Arial'; ctx.fillText('Alineación por confirmar', 250, 900); }
-  ctx.fillStyle = '#D4AF37'; ctx.fillRect(80, 1220, 920, 4); ctx.fillStyle = '#fff'; ctx.font = '32px Arial'; ctx.fillText('@interdeverdunbcn  #InterDeVerdun', 80, 1280);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.font = '700 42px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Alineación por confirmar', 540, 980);
+    ctx.textAlign = 'start';
+  }
+
+  ctx.fillStyle = '#D4AF37';
+  ctx.fillRect(80, 1248, 920, 4);
+  ctx.fillStyle = '#13324f';
+  ctx.font = '600 32px Arial';
+  ctx.textAlign = 'center';
+  ctx.fillText('@interdeverdunbcn  #InterDeVerdun', 540, 1300);
+  ctx.textAlign = 'start';
+
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
   if (!blob) return;
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   const datePart = new Date(match.date || Date.now()).toISOString().slice(0, 10);
   link.href = url;
-  link.download = `convocatoria_${datePart}_${String(match.rival || 'rival').replace(/\s+/g, '_').toLowerCase()}.png`;
+  const rivalPart = String(match.rival || 'rival').normalize('NFD').replace(/[^\w\s-]/g, '').trim().replace(/\s+/g, '_').toLowerCase() || 'rival';
+  link.download = `convocatoria_${datePart}_${rivalPart}.png`;
   link.click();
   URL.revokeObjectURL(url);
+
+  if (imageLoadFailed) {
+    showToastOrAlert('Cartel generado sin algunos recursos visuales (fondo/escudo).', 'error');
+  }
+}
+
+
+function clampStatValue(value) {
+  const n = Number(value ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, n);
+}
+
+function renderPostMatchPlayersList() {
+  const container = $('postPlayersList');
+  if (!container) return;
+
+  const players = getPlayers();
+  container.innerHTML = `
+    <h4 class="postmatch-stats-title">Estadísticas (totales)</h4>
+    <div class="postmatch-grid-head">
+      <span>Jugador</span>
+      <span>⚽ Goles</span>
+      <span>🅰️ Asist</span>
+      <span>🟨 Amar</span>
+      <span>🟥 Rojas</span>
+      <span>🏆 MVP</span>
+    </div>
+    ${players.map((p) => {
+      const d = state.postMatchEditor.playerStatsDraft[p.id] || { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 };
+      return `
+        <div class="postmatch-grid-row" data-player="${p.id}">
+          <div class="postmatch-player">#${p.dorsal || '-'} ${p.name}</div>
+          <div class="postmatch-stat postmatch-stat--stepper" data-label="⚽ Goles">
+            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="goals" data-step-delta="-1" aria-label="Restar gol">−</button>
+            <label class="sr-only" for="post-goals-${p.id}">Goles de ${p.name}</label>
+            <input id="post-goals-${p.id}" data-stat-player="${p.id}" data-stat-key="goals" type="number" min="0" step="1" value="${clampStatValue(d.goals)}" placeholder="Goles">
+            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="goals" data-step-delta="1" aria-label="Sumar gol">+</button>
+          </div>
+          <div class="postmatch-stat postmatch-stat--stepper" data-label="🅰️ Asist">
+            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="assists" data-step-delta="-1" aria-label="Restar asistencia">−</button>
+            <label class="sr-only" for="post-assists-${p.id}">Asistencias de ${p.name}</label>
+            <input id="post-assists-${p.id}" data-stat-player="${p.id}" data-stat-key="assists" type="number" min="0" step="1" value="${clampStatValue(d.assists)}" placeholder="Asist">
+            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="assists" data-step-delta="1" aria-label="Sumar asistencia">+</button>
+          </div>
+          <div class="postmatch-stat" data-label="🟨 Amar">
+            <label class="sr-only" for="post-yc-${p.id}">Amarillas de ${p.name}</label>
+            <input id="post-yc-${p.id}" data-stat-player="${p.id}" data-stat-key="yc" type="number" min="0" step="1" value="${clampStatValue(d.yc)}" placeholder="🟨 Amar">
+          </div>
+          <div class="postmatch-stat" data-label="🟥 Rojas">
+            <label class="sr-only" for="post-rc-${p.id}">Rojas de ${p.name}</label>
+            <input id="post-rc-${p.id}" data-stat-player="${p.id}" data-stat-key="rc" type="number" min="0" step="1" value="${clampStatValue(d.rc)}" placeholder="🟥 Rojas">
+          </div>
+          <div class="postmatch-stat" data-label="🏆 MVP">
+            <label class="sr-only" for="post-mvp-${p.id}">MVP de ${p.name}</label>
+            <input id="post-mvp-${p.id}" data-stat-player="${p.id}" data-stat-key="mvps" type="number" min="0" step="1" value="${clampStatValue(d.mvps)}" placeholder="🏆 MVP">
+          </div>
+        </div>`;
+    }).join('')}
+  `;
 }
 
 
@@ -1182,20 +1444,12 @@ function openPostMatchModal(matchId) {
     getPlayers().map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
   );
 
-  $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
-  $('postResultHome').value = match.result_home ?? '';
-  $('postResultAway').value = match.result_away ?? '';
-  $('postPlayersList').innerHTML = getPlayers().map((p) => {
-    const d = state.postMatchEditor.playerStatsDraft[p.id];
-    return `<div><strong>#${p.dorsal} ${p.name}</strong>
-      <input data-stat-player="${p.id}" data-stat-key="goals" type="number" min="0" value="${d.goals}">
-      <input data-stat-player="${p.id}" data-stat-key="assists" type="number" min="0" value="${d.assists}">
-      <input data-stat-player="${p.id}" data-stat-key="yc" type="number" min="0" value="${d.yc}">
-      <input data-stat-player="${p.id}" data-stat-key="rc" type="number" min="0" value="${d.rc}">
-      <input data-stat-player="${p.id}" data-stat-key="mvps" type="number" min="0" value="${d.mvps}"></div>`;
-  }).join('');
+  if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
+  if ($('postResultHome')) $('postResultHome').value = match.result_home ?? '';
+  if ($('postResultAway')) $('postResultAway').value = match.result_away ?? '';
+  renderPostMatchPlayersList();
 
-  $('postMatchModal').showModal();
+  $('postMatchModal')?.showModal();
 }
 
 async function savePostMatchModal() {
@@ -1468,7 +1722,23 @@ function bindEvents() {
     }
   });
 
-  $('generateImageBtn').addEventListener('click', () => generateInstagramPoster(state.selectedMatchId));
+  const genBtn = $('generateImageBtn');
+  if (genBtn) {
+    genBtn.onclick = () => {
+      const id = state.selectedMatchId;
+      if (!id) return showToastOrAlert('Selecciona un partido para generar el cartel', 'error');
+      generateInstagramPoster(id);
+    };
+  }
+
+  const adminBtn = $('adminImageBtn');
+  if (adminBtn) {
+    adminBtn.onclick = () => {
+      const id = state.selectedMatchId || getUpcomingMatch?.()?.id;
+      if (!id) return showToastOrAlert('No hay partido seleccionado ni próximo partido disponible', 'error');
+      generateInstagramPoster(id);
+    };
+  }
 
   $('mvpMatchSelector').addEventListener('change', async (e) => {
     state.mvp.selectedMatchId = e.target.value;
@@ -1542,16 +1812,30 @@ function bindEvents() {
     if ($('sMvps')) $('sMvps').value = p.stats.mvps;
   });
 
-  $('closeModalBtn').addEventListener('click', () => $('matchModal').close());
-  $('savePostMatchBtn').addEventListener('click', savePostMatchModal);
-  $('closePostMatchBtn').addEventListener('click', () => $('postMatchModal').close());
-  $('postPlayersList').addEventListener('input', (e) => {
+  $('closeModalBtn')?.addEventListener('click', () => $('matchModal')?.close());
+  $('savePostMatchBtn')?.addEventListener('click', savePostMatchModal);
+  $('closePostMatchBtn')?.addEventListener('click', () => $('postMatchModal')?.close());
+  $('postPlayersList')?.addEventListener('input', (e) => {
     const input = e.target.closest('input[data-stat-player]');
     if (!input) return;
     const pid = input.dataset.statPlayer;
     const key = input.dataset.statKey;
     if (!state.postMatchEditor.playerStatsDraft[pid]) return;
-    state.postMatchEditor.playerStatsDraft[pid][key] = Number(input.value || 0);
+    state.postMatchEditor.playerStatsDraft[pid][key] = clampStatValue(input.value);
+    input.value = String(state.postMatchEditor.playerStatsDraft[pid][key]);
+  });
+
+  $('postPlayersList')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-step-player]');
+    if (!btn) return;
+    const pid = btn.dataset.stepPlayer;
+    const key = btn.dataset.stepKey;
+    const delta = Number(btn.dataset.stepDelta || 0);
+    const draft = state.postMatchEditor.playerStatsDraft[pid];
+    if (!draft || !key) return;
+    draft[key] = clampStatValue(Number(draft[key] || 0) + delta);
+    const input = document.querySelector(`input[data-stat-player="${pid}"][data-stat-key="${key}"]`);
+    if (input) input.value = String(draft[key]);
   });
   window.addEventListener('hashchange', route);
 }
