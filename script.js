@@ -10,7 +10,7 @@ const state = {
   profileStatus: 'loading',
   profileFetchErrorMessage: '',
   pendingMatches: [],
-  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {} },
+  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, ui: { q: '', onlyEdited: false } },
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -1047,12 +1047,9 @@ function renderLineupEditor() {
     return;
   }
 
-  if (!state.lineupEditor.selectedMatchId || !isUuid(state.lineupEditor.selectedMatchId)) {
-    state.lineupEditor.selectedMatchId = matches[0].id;
+  if (state.lineupEditor.selectedMatchId && isUuid(state.lineupEditor.selectedMatchId) && matches.some((m) => m.id === state.lineupEditor.selectedMatchId)) {
     hydrateLineupEditor(state.lineupEditor.selectedMatchId);
-  }
-
-  if (!matches.some((m) => m.id === state.lineupEditor.selectedMatchId)) {
+  } else {
     state.lineupEditor.selectedMatchId = matches[0].id;
     hydrateLineupEditor(state.lineupEditor.selectedMatchId);
   }
@@ -1100,12 +1097,25 @@ function renderAdmin() {
 
   const matches = getMatches();
   const players = getPlayers();
-  adminView.innerHTML = `<article class="card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="chips"><button type="button" id="quickPostBtn" class="btn btn-secondary">Post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Alineación</button><button type="button" id="quickConvBtn" class="btn btn-gold">Convocatoria</button></div></article><details class="card" open><summary>Post-partido pendiente</summary><ul id="adminPendingListAccordion" class="list"></ul></details><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details><details class="card" open><summary>Alineación por partido</summary><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></details>`;
+  adminView.innerHTML = `<article class="card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="chips"><button type="button" id="quickPostBtn" class="btn btn-secondary">Post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Alineación</button><button type="button" id="quickConvBtn" class="btn btn-gold">Convocatoria</button></div></article><details class="card" open><summary>Post-partido pendiente</summary><ul id="adminPendingListAccordion" class="list"></ul></details><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details><details id="lineupEditorSection" class="card" open><summary>Alineación por partido</summary><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></details>`;
   $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   $('adminPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
   $('adminPendingListAccordion').innerHTML = state.pendingMatches.length ? state.pendingMatches.map((m) => `<li><button class="btn btn-secondary" type="button" data-action="admin-open-postmatch" data-id="${m.id}">${formatMatchShort(m)}</button></li>`).join('') : '<li class="muted">Sin pendientes.</li>';
   $('quickPostBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
-  $('quickLineupBtn')?.addEventListener('click', () => window.location.hash = '#admin');
+  $('quickLineupBtn')?.addEventListener('click', () => {
+    const pendingSelected = state.postMatchEditor?.matchId;
+    const preferredMatchId = isUuid(pendingSelected)
+      ? pendingSelected
+      : (isUuid(state.lineupEditor.selectedMatchId) ? state.lineupEditor.selectedMatchId : null);
+    if (preferredMatchId) {
+      state.lineupEditor.selectedMatchId = preferredMatchId;
+      hydrateLineupEditor(preferredMatchId);
+    }
+    window.location.hash = '#admin';
+    renderAdmin();
+    route();
+    requestAnimationFrame(() => (document.querySelector('#lineupEditorSection') || document.querySelector('#lineupFieldAdmin'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  });
   $('quickConvBtn')?.addEventListener('click', () => window.location.hash = '#convocatoria');
   $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value); renderLineupEditor(); });
   $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
@@ -1389,6 +1399,16 @@ function clampStatValue(value) {
   return Math.max(0, n);
 }
 
+function ensureDraftForPlayer(playerId) {
+  const d = state.postMatchEditor.playerStatsDraft || (state.postMatchEditor.playerStatsDraft = {});
+  if (!d[playerId]) d[playerId] = { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 };
+  return d[playerId];
+}
+
+function isDraftEdited(d) {
+  return (d.goals || 0) !== 0 || (d.assists || 0) !== 0 || (d.yc || 0) !== 0 || (d.rc || 0) !== 0 || (d.mvps || 0) !== 0;
+}
+
 function renderPostMatchPlayersList() {
   const container = $('postPlayersList');
   if (!container) return;
@@ -1405,48 +1425,58 @@ function renderPostMatchPlayersList() {
     );
   }
 
-  container.innerHTML = `
-    <h4 class="postmatch-stats-title">Estadísticas (totales)</h4>
-    <div class="postmatch-grid-head">
-      <span>Jugador</span>
-      <span>⚽ Goles</span>
-      <span>🅰️ Asist</span>
-      <span>🟨 Amar</span>
-      <span>🟥 Rojas</span>
-      <span>🏆 MVP</span>
-    </div>
-    ${players.map((p) => {
-      const d = state.postMatchEditor.playerStatsDraft[p.id] || { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 };
-      return `
-        <div class="postmatch-grid-row" data-player="${p.id}">
-          <div class="postmatch-player">#${p.dorsal || '-'} ${p.name}</div>
-          <div class="postmatch-stat postmatch-stat--stepper" data-label="⚽ Goles">
-            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="goals" data-step-delta="-1" aria-label="Restar gol">−</button>
-            <label class="sr-only" for="post-goals-${p.id}">Goles de ${p.name}</label>
-            <input id="post-goals-${p.id}" data-stat-player="${p.id}" data-stat-key="goals" type="number" min="0" step="1" value="${clampStatValue(d.goals)}" placeholder="Goles">
-            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="goals" data-step-delta="1" aria-label="Sumar gol">+</button>
+  if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
+  const q = String(state.postMatchEditor.ui.q || '').trim().toLowerCase();
+  const onlyEdited = Boolean(state.postMatchEditor.ui.onlyEdited);
+  const filteredPlayers = players.filter((p) => {
+    const draft = ensureDraftForPlayer(p.id);
+    const byQuery = !q || String(p.name || '').toLowerCase().includes(q);
+    const byEdited = !onlyEdited || isDraftEdited(draft);
+    return byQuery && byEdited;
+  });
+
+  if (!filteredPlayers.length) {
+    container.innerHTML = "<p class='muted'>No hay jugadores para este filtro.</p>";
+    return;
+  }
+
+  container.innerHTML = `<div class="pm-list">${filteredPlayers.map((p) => {
+    const d = ensureDraftForPlayer(p.id);
+    const edited = isDraftEdited(d);
+    return `<div class="pm-card" data-player-id="${p.id}">
+      <div class="pm-card-top">
+        <div class="pm-name">#${p.dorsal || '-'} ${p.name}</div>
+        <div class="pm-edited" style="display:${edited ? 'inline-flex' : 'none'}">Editado</div>
+      </div>
+      <div class="pm-controls">
+        <div class="pm-ctrl">
+          <label>Goles</label>
+          <div class="pm-stepper" data-stat="goals">
+            <button type="button" data-action="dec">−</button>
+            <input inputmode="numeric" pattern="[0-9]*" value="${clampStatValue(d.goals)}" data-field="goals">
+            <button type="button" data-action="inc">+</button>
           </div>
-          <div class="postmatch-stat postmatch-stat--stepper" data-label="🅰️ Asist">
-            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="assists" data-step-delta="-1" aria-label="Restar asistencia">−</button>
-            <label class="sr-only" for="post-assists-${p.id}">Asistencias de ${p.name}</label>
-            <input id="post-assists-${p.id}" data-stat-player="${p.id}" data-stat-key="assists" type="number" min="0" step="1" value="${clampStatValue(d.assists)}" placeholder="Asist">
-            <button type="button" class="stat-stepper" data-step-player="${p.id}" data-step-key="assists" data-step-delta="1" aria-label="Sumar asistencia">+</button>
+        </div>
+
+        <div class="pm-ctrl">
+          <label>Asist.</label>
+          <div class="pm-stepper" data-stat="assists">
+            <button type="button" data-action="dec">−</button>
+            <input inputmode="numeric" pattern="[0-9]*" value="${clampStatValue(d.assists)}" data-field="assists">
+            <button type="button" data-action="inc">+</button>
           </div>
-          <div class="postmatch-stat" data-label="🟨 Amar">
-            <label class="sr-only" for="post-yc-${p.id}">Amarillas de ${p.name}</label>
-            <input id="post-yc-${p.id}" data-stat-player="${p.id}" data-stat-key="yc" type="number" min="0" step="1" value="${clampStatValue(d.yc)}" placeholder="🟨 Amar">
+        </div>
+
+        <div class="pm-ctrl">
+          <label>Tarjetas</label>
+          <div class="pm-toggle">
+            <button type="button" class="pm-yellow ${d.yc ? 'is-on' : ''}" data-toggle="yc">🟨</button>
+            <button type="button" class="${d.rc ? 'is-on' : ''}" data-toggle="rc">🟥</button>
           </div>
-          <div class="postmatch-stat" data-label="🟥 Rojas">
-            <label class="sr-only" for="post-rc-${p.id}">Rojas de ${p.name}</label>
-            <input id="post-rc-${p.id}" data-stat-player="${p.id}" data-stat-key="rc" type="number" min="0" step="1" value="${clampStatValue(d.rc)}" placeholder="🟥 Rojas">
-          </div>
-          <div class="postmatch-stat" data-label="🏆 MVP">
-            <label class="sr-only" for="post-mvp-${p.id}">MVP de ${p.name}</label>
-            <input id="post-mvp-${p.id}" data-stat-player="${p.id}" data-stat-key="mvps" type="number" min="0" step="1" value="${clampStatValue(d.mvps)}" placeholder="🏆 MVP">
-          </div>
-        </div>`;
-    }).join('')}
-  `;
+        </div>
+      </div>
+    </div>`;
+  }).join('')}</div>`;
 }
 
 
@@ -1463,6 +1493,7 @@ function openPostMatchModal(matchId) {
   state.postMatchEditor.open = true;
   state.postMatchEditor.matchId = matchId;
   state.postMatchEditor.playerStatsDraft = {};
+  state.postMatchEditor.ui = { q: '', onlyEdited: false };
 
   let homeVal = '';
   let awayVal = '';
@@ -1480,6 +1511,8 @@ function openPostMatchModal(matchId) {
   if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
   if ($('postResultHome')) $('postResultHome').value = homeVal;
   if ($('postResultAway')) $('postResultAway').value = awayVal;
+  if ($('postPlayersSearch')) $('postPlayersSearch').value = '';
+  if ($('postFilterEditedBtn')) $('postFilterEditedBtn').textContent = 'Solo editados: NO';
 
   renderPostMatchPlayersList();
   if (!getPlayers().length && $('postPlayersList')) {
@@ -1903,27 +1936,72 @@ function bindEvents() {
   $('closeModalBtn')?.addEventListener('click', () => $('matchModal')?.close());
   $('savePostMatchBtn')?.addEventListener('click', savePostMatchModal);
   $('closePostMatchBtn')?.addEventListener('click', () => $('postMatchModal')?.close());
+  $('postPlayersSearch')?.addEventListener('input', (e) => {
+    if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
+    state.postMatchEditor.ui.q = e.target.value || '';
+    renderPostMatchPlayersList();
+  });
+
+  $('postFilterEditedBtn')?.addEventListener('click', () => {
+    if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
+    state.postMatchEditor.ui.onlyEdited = !state.postMatchEditor.ui.onlyEdited;
+    $('postFilterEditedBtn').textContent = `Solo editados: ${state.postMatchEditor.ui.onlyEdited ? 'SÍ' : 'NO'}`;
+    renderPostMatchPlayersList();
+  });
+
+  $('postResetDraftBtn')?.addEventListener('click', () => {
+    const players = getPlayers();
+    state.postMatchEditor.playerStatsDraft = Object.fromEntries(players.map((p) => [p.id, { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 }]));
+    renderPostMatchPlayersList();
+  });
+
+  function syncPostEditedBadge(card, draft) {
+    const badge = card?.querySelector('.pm-edited');
+    if (badge) badge.style.display = isDraftEdited(draft) ? 'inline-flex' : 'none';
+  }
+
   $('postPlayersList')?.addEventListener('input', (e) => {
-    const input = e.target.closest('input[data-stat-player]');
+    const input = e.target.closest('input[data-field]');
     if (!input) return;
-    const pid = input.dataset.statPlayer;
-    const key = input.dataset.statKey;
-    if (!state.postMatchEditor.playerStatsDraft[pid]) return;
-    state.postMatchEditor.playerStatsDraft[pid][key] = clampStatValue(input.value);
-    input.value = String(state.postMatchEditor.playerStatsDraft[pid][key]);
+    const card = input.closest('[data-player-id]');
+    const pid = card?.dataset.playerId;
+    const key = input.dataset.field;
+    if (!pid || !key) return;
+    const draft = ensureDraftForPlayer(pid);
+    draft[key] = clampStatValue(parseInt(input.value, 10));
+    input.value = String(draft[key]);
+    syncPostEditedBadge(card, draft);
   });
 
   $('postPlayersList')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('button[data-step-player]');
-    if (!btn) return;
-    const pid = btn.dataset.stepPlayer;
-    const key = btn.dataset.stepKey;
-    const delta = Number(btn.dataset.stepDelta || 0);
-    const draft = state.postMatchEditor.playerStatsDraft[pid];
-    if (!draft || !key) return;
-    draft[key] = clampStatValue(Number(draft[key] || 0) + delta);
-    const input = document.querySelector(`input[data-stat-player="${pid}"][data-stat-key="${key}"]`);
-    if (input) input.value = String(draft[key]);
+    const card = e.target.closest('[data-player-id]');
+    if (!card) return;
+    const pid = card.dataset.playerId;
+    if (!pid) return;
+    const draft = ensureDraftForPlayer(pid);
+
+    const stepBtn = e.target.closest('button[data-action]');
+    if (stepBtn) {
+      const stepper = stepBtn.closest('.pm-stepper');
+      const stat = stepper?.dataset.stat;
+      const action = stepBtn.dataset.action;
+      if (!stat || !['goals', 'assists'].includes(stat)) return;
+      const delta = action === 'inc' ? 1 : -1;
+      draft[stat] = clampStatValue(Number(draft[stat] || 0) + delta);
+      const input = stepper.querySelector(`input[data-field="${stat}"]`);
+      if (input) input.value = String(draft[stat]);
+      syncPostEditedBadge(card, draft);
+      return;
+    }
+
+    const toggleBtn = e.target.closest('button[data-toggle]');
+    if (toggleBtn) {
+      const key = toggleBtn.dataset.toggle;
+      if (!['yc', 'rc'].includes(key)) return;
+      draft[key] = draft[key] ? 0 : 1;
+      toggleBtn.classList.toggle('is-on', Boolean(draft[key]));
+      syncPostEditedBadge(card, draft);
+    }
   });
   window.addEventListener('hashchange', route);
 }

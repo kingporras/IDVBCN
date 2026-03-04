@@ -150,9 +150,16 @@
       <h3 id="postMatchTitle">Post-partido</h3>
       <label>Resultado local</label><input id="postResultHome" class="input" type="number" min="0" />
       <label>Resultado rival</label><input id="postResultAway" class="input" type="number" min="0" />
-      <div id="postPlayersList" class="list"></div>
-      <button id="savePostMatchBtn" type="button" class="btn btn-primary">Guardar post-partido</button>
-      <button id="closePostMatchBtn" type="button" class="btn btn-secondary">Cerrar</button>
+      <div class="pm-toolbar">
+        <input id="postPlayersSearch" type="text" placeholder="Buscar jugador…" />
+        <button id="postFilterEditedBtn" type="button" class="btn btn-secondary">Solo editados: NO</button>
+        <button id="postResetDraftBtn" type="button" class="btn btn-secondary">Reset</button>
+      </div>
+      <div id="postPlayersList"></div>
+      <div class="pm-footer-sticky">
+        <button id="savePostMatchBtn" type="button" class="btn btn-primary">Guardar post-partido</button>
+        <button id="closePostMatchBtn" type="button" class="btn btn-secondary">Cerrar</button>
+      </div>
     </article>
   </dialog>
 
