@@ -254,6 +254,14 @@ function writeJSON(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function clearMatchResultOverride(matchId) {
+  const o = readJSON('matchResultsOverride', {});
+  if (o && Object.prototype.hasOwnProperty.call(o, matchId)) {
+    delete o[matchId];
+    writeJSON('matchResultsOverride', o);
+  }
+}
+
 
 function getPlayers() {
   const override = readJSON('playerStatsOverride', {});
@@ -1386,6 +1394,17 @@ function renderPostMatchPlayersList() {
   if (!container) return;
 
   const players = getPlayers();
+  if (!players.length) {
+    container.innerHTML = "<p class='muted'>No hay jugadores para editar.</p>";
+    return;
+  }
+
+  if (!state.postMatchEditor.playerStatsDraft || !Object.keys(state.postMatchEditor.playerStatsDraft).length) {
+    state.postMatchEditor.playerStatsDraft = Object.fromEntries(
+      players.map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
+    );
+  }
+
   container.innerHTML = `
     <h4 class="postmatch-stats-title">Estadísticas (totales)</h4>
     <div class="postmatch-grid-head">
@@ -1437,19 +1456,42 @@ function openPostMatchModal(matchId) {
     return;
   }
   const match = getMatches().find((m) => m.id === matchId);
-  if (!match) return;
+  if (!match) {
+    showToast('Partido no encontrado', 'error');
+    return;
+  }
   state.postMatchEditor.open = true;
   state.postMatchEditor.matchId = matchId;
-  state.postMatchEditor.playerStatsDraft = Object.fromEntries(
-    getPlayers().map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
-  );
+  state.postMatchEditor.playerStatsDraft = {};
+
+  let homeVal = '';
+  let awayVal = '';
+  if (match.result_home !== null && match.result_home !== undefined && match.result_away !== null && match.result_away !== undefined) {
+    homeVal = match.result_home;
+    awayVal = match.result_away;
+  } else {
+    const parsed = parseResult(match.result);
+    if (parsed) {
+      homeVal = parsed.home;
+      awayVal = parsed.away;
+    }
+  }
 
   if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
-  if ($('postResultHome')) $('postResultHome').value = match.result_home ?? '';
-  if ($('postResultAway')) $('postResultAway').value = match.result_away ?? '';
-  renderPostMatchPlayersList();
+  if ($('postResultHome')) $('postResultHome').value = homeVal;
+  if ($('postResultAway')) $('postResultAway').value = awayVal;
 
-  $('postMatchModal')?.showModal();
+  renderPostMatchPlayersList();
+  if (!getPlayers().length && $('postPlayersList')) {
+    $('postPlayersList').innerHTML = "<p class='muted'>No hay jugadores cargados</p>";
+  }
+
+  const dlg = $('postMatchModal');
+  dlg?.showModal();
+  requestAnimationFrame(() => {
+    try { dlg.scrollTop = 0; } catch {}
+    try { $('postPlayersList').scrollTop = 0; } catch {}
+  });
 }
 
 async function savePostMatchModal() {
@@ -1458,14 +1500,27 @@ async function savePostMatchModal() {
     return;
   }
   const matchId = state.postMatchEditor.matchId;
-  const result_home = Number($('postResultHome').value);
-  const result_away = Number($('postResultAway').value);
+  const result_home = parseInt($('postResultHome').value, 10);
+  const result_away = parseInt($('postResultAway').value, 10);
+
+  if (Number.isNaN(result_home) || Number.isNaN(result_away) || result_home < 0 || result_away < 0) {
+    showToast('Resultado inválido', 'error');
+    return;
+  }
 
   const { error: matchError } = await supabaseClient.from('matches').update({ result_home, result_away }).eq('id', matchId);
   if (matchError) {
     showToast(matchError.message || 'Error guardando resultado', 'error');
     return;
   }
+
+  clearMatchResultOverride(matchId);
+  const idx = state.data.matches.findIndex((m) => m.id === matchId);
+  if (idx >= 0) {
+    state.data.matches[idx] = mapMatchRow({ ...state.data.matches[idx], result_home, result_away });
+  }
+  await refreshPostMatchState();
+  renderHome();
 
   const updates = Object.entries(state.postMatchEditor.playerStatsDraft).map(([playerId, d]) => (
     supabaseClient.from('players').update({ goals: Number(d.goals), assists: Number(d.assists), yc: Number(d.yc), rc: Number(d.rc), mvps: Number(d.mvps) }).eq('id', playerId)
@@ -1483,6 +1538,18 @@ async function savePostMatchModal() {
   showToast('Post-partido actualizado', 'success');
 }
 
+
+function openAdminLineupForMatch(matchId) {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!isUuid(matchId)) return showToast('Este partido no es UUID', 'error');
+  state.lineupEditor.selectedMatchId = matchId;
+  hydrateLineupEditor(matchId);
+  window.location.hash = '#admin';
+  renderAdmin();
+  route();
+  requestAnimationFrame(() => document.getElementById('lineupFieldAdmin')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }));
+}
+
 function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
@@ -1494,6 +1561,7 @@ function openMatchModal(matchId) {
   const adminMode = isAdmin();
   adminZone.classList.toggle('hidden', !adminMode);
   $('openPostMatchFromModalBtn').onclick = () => openPostMatchModal(m.id);
+  $('openLineupEditorFromModalBtn').onclick = () => openAdminLineupForMatch(m.id);
 
   $('matchModal').showModal();
 }
@@ -1778,8 +1846,28 @@ function bindEvents() {
     if (e.target?.id === 'resultForm') {
       e.preventDefault();
       const id = $('adminMatchSelector')?.value;
+      const raw = $('adminResult')?.value?.trim() || '-';
+      if (isUuid(id) && supabaseClient && isAdmin()) {
+        const parsed = parseResult(raw);
+        if (!parsed) {
+          showToast('Resultado inválido', 'error');
+          return;
+        }
+        supabaseClient.from('matches').update({ result_home: parsed.home, result_away: parsed.away }).eq('id', id)
+          .then(async ({ error }) => {
+            if (error) {
+              showToast(error.message || 'Error guardando resultado', 'error');
+              return;
+            }
+            clearMatchResultOverride(id);
+            await hydrateSessionData();
+            renderAll();
+            showToast('Resultado guardado', 'success');
+          });
+        return;
+      }
       const o = readJSON('matchResultsOverride', {});
-      o[id] = $('adminResult')?.value?.trim() || '-';
+      o[id] = raw;
       writeJSON('matchResultsOverride', o);
       renderAll();
       showToast('Resultado guardado');
