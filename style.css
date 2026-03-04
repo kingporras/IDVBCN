@@ -145,3 +145,24 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
     font-weight: 700;
   }
 }
+.pm-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:10px}
+.pm-toolbar input{flex:1;min-width:160px;padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,.08)}
+.pm-toolbar .btn{padding:10px 12px;border-radius:12px}
+.pm-footer-sticky{position:sticky;bottom:0;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);padding:10px;border-top:1px solid rgba(0,0,0,.08);display:flex;gap:10px}
+.pm-footer-sticky .btn{flex:1}
+.pm-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.pm-card{border:1px solid rgba(0,0,0,.08);border-radius:14px;padding:10px;background:#fff}
+.pm-card-top{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.pm-name{font-weight:800}
+.pm-edited{font-size:12px;padding:3px 8px;border-radius:999px;background:rgba(77,163,255,.12);border:1px solid rgba(77,163,255,.25)}
+.pm-controls{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.pm-ctrl{display:flex;align-items:center;gap:8px;border:1px solid rgba(0,0,0,.08);border-radius:12px;padding:8px}
+.pm-ctrl label{font-size:12px;opacity:.75}
+.pm-stepper{display:flex;align-items:center;gap:8px}
+.pm-stepper button{width:34px;height:34px;border-radius:10px;border:1px solid rgba(0,0,0,.10);background:#fff}
+.pm-stepper input{width:46px;text-align:center;padding:8px;border-radius:10px;border:1px solid rgba(0,0,0,.10)}
+.pm-toggle{display:flex;gap:8px}
+.pm-toggle button{padding:8px 10px;border-radius:12px;border:1px solid rgba(0,0,0,.10);background:#fff}
+.pm-toggle button.is-on{background:rgba(255,111,111,.14);border-color:rgba(255,111,111,.35)}
+.pm-toggle button.is-on.pm-yellow{background:rgba(255,214,102,.22);border-color:rgba(255,214,102,.45)}
+@media (max-width:420px){ .pm-controls{gap:8px} .pm-ctrl{flex:1} }
