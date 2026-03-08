@@ -1033,51 +1033,66 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     return false;
   }
 
-  const { error: deleteError } = await supabaseClient
-    .from('lineups')
-    .delete()
-    .eq('match_id', matchId);
+  const showLineupSaveError = (error) => {
+    console.error('[lineups] save failed', error);
+    if (isRlsPermissionError(error)) {
+      showToast('Permisos insuficientes (RLS)', 'error');
+      return;
+    }
+    showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
+  };
 
-  if (deleteError) {
-    console.error('[lineups] delete error', deleteError);
-    showToast(isRlsPermissionError(deleteError) ? 'Permisos insuficientes (RLS)' : ('Error guardando alineación: ' + (deleteError.message || deleteError.code)), 'error');
-    return false;
+ const showLineupSaveError = (error) => {
+  console.error('[lineups] save failed', error);
+  if (isRlsPermissionError(error)) {
+    showToast('Permisos insuficientes (RLS)', 'error');
+    return;
   }
+  showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
+};
 
-  const upsertRows = Object.entries(nextAssignments || {}).map(([slot, playerId]) => ({
+const { error: deleteError } = await supabaseClient
+  .from('lineups')
+  .delete()
+  .eq('match_id', matchId);
+
+if (deleteError) {
+  showLineupSaveError(deleteError);
+  console.error('[lineups] delete error', deleteError);
+  return false;
+}
+
+const rows = Object.entries(nextAssignments || {})
+  .map(([positionSlot, playerId]) => ({
     match_id: matchId,
     player_id: playerId,
-    position_slot: slot
-  }));
+    position_slot: positionSlot
+  }))
+  .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
 
-  if (upsertRows.length) {
-    const { error: upsertError } = await supabaseClient
-      .from('lineups')
-      .upsert(upsertRows, { onConflict: 'match_id,player_id' });
-
-    if (upsertError) {
-      console.error('[lineups] upsert error', upsertError);
-      showToast(isRlsPermissionError(upsertError) ? 'Permisos insuficientes (RLS)' : ('Error guardando alineación: ' + (upsertError.message || upsertError.code)), 'error');
-      return false;
-    }
-  }
-
-  const { data: finalRows, error: finalError } = await supabaseClient
+if (rows.length) {
+  const { error: insertError } = await supabaseClient
     .from('lineups')
-    .select('match_id, player_id, position_slot')
-    .eq('match_id', matchId);
+    .insert(rows);
 
-  if (finalError) {
-    console.error('[lineups] reload error', finalError);
-    showToast('Error recargando alineación: ' + (finalError.message || finalError.code), 'error');
+  if (insertError) {
+    showLineupSaveError(insertError);
+    console.error('[lineups] insert error', insertError);
     return false;
   }
+}
+
+const { data: finalRows, error: finalError } = await supabaseClient
+  .from('lineups')
+  .select('match_id, player_id, position_slot')
+  .eq('match_id', matchId);
 
   state.lineupsByMatch[matchId] = {};
   (finalRows || []).forEach((row) => {
     state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
   });
 
+  state.lineupEditor.isDirty = false;
   return true;
 }
 
