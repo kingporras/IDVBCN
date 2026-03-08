@@ -37,28 +37,37 @@
 
     <main>
       <section class="view" data-view="home">
+        <article class="card card--accent home-hero" style="--accent-color: #6cb6ff">
+          <h2 class="section-title">Próximo partido</h2>
+          <p id="nextMatchText" class="home-hero-main"></p>
+          <p id="nextMatchMeta" class="home-hero-meta"></p>
+          <small id="homePendingHint"></small>
+        </article>
+
+        <article class="card home-cta-card">
+          <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
+        </article>
+
+        <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
+          <h2 class="section-title">Alineación publicada</h2>
+          <p id="lineupHomeMessage" class="lineup-message">Alineación aún no publicada</p>
+          <small id="lineupHomeSubmessage" class="muted"></small>
+          <div id="lineupFieldHome" class="lineup-field hidden"></div>
+        </article>
+
         <article class="card card--accent" style="--accent-color: var(--celeste)">
           <h2 class="section-title">Mis estadísticas</h2>
           <div id="myStats" class="stats-grid"></div>
         </article>
-        <article id="adminPendingCard" class="card card--accent hidden" style="--accent-color: var(--dorado)">
-          <h2 class="section-title">Post-partido pendiente</h2>
-          <ul id="adminPendingList" class="list"></ul>
-        </article>
-        <article class="card card--accent" style="--accent-color: #6cb6ff">
-          <h2 class="section-title">Próximo partido</h2>
-          <p id="nextMatchText"></p>
-          <small id="homePendingHint"></small>
-          <button id="goConfirmBtn" class="btn btn-primary">Confirmar asistencia</button>
-        </article>
+
         <article class="card card--accent" style="--accent-color: var(--dorado)">
           <h2 class="section-title">Top MVP</h2>
           <ol id="topMvpList"></ol>
         </article>
-        <article class="card card--accent" style="--accent-color: #4ecf8f">
-          <h2 class="section-title">Alineación</h2>
-          <p id="lineupHomeMessage" class="lineup-message">Sin alineación definida</p>
-          <div id="lineupFieldHome" class="lineup-field hidden"></div>
+
+        <article id="adminPendingCard" class="card card--accent hidden" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Post-partido pendiente</h2>
+          <ul id="adminPendingList" class="list"></ul>
         </article>
       </section>
 
@@ -74,7 +83,6 @@
           </div>
           <pre id="convocatoriaDebug" class="hidden" style="white-space:pre-wrap;font-size:.8rem;background:#0b2035;color:#d6ecff;padding:.5rem;border-radius:.5rem"></pre>
           <ul id="attendanceList" class="list"></ul>
-          <button id="generateImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
         </article>
       </section>
 

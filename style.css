@@ -166,3 +166,110 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
 .pm-toggle button.is-on{background:rgba(255,111,111,.14);border-color:rgba(255,111,111,.35)}
 .pm-toggle button.is-on.pm-yellow{background:rgba(255,214,102,.22);border-color:rgba(255,214,102,.45)}
 @media (max-width:420px){ .pm-controls{gap:8px} .pm-ctrl{flex:1} }
+
+/* Home incremental redesign (mobile-first) */
+.home-hero {
+  background: linear-gradient(180deg, #eef6ff 0%, #ffffff 100%);
+}
+.home-hero .section-title {
+  font-size: 1.15rem;
+  margin-bottom: 6px;
+}
+.home-hero-main {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0d3f66;
+}
+.home-hero-meta {
+  margin: 4px 0 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.home-cta-card {
+  padding: 10px;
+}
+.home-cta {
+  min-height: 52px;
+  font-size: 1rem;
+  width: 100%;
+}
+.home-lineup-card .lineup-message {
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+#lineupHomeSubmessage {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.82rem;
+}
+
+/* Admin control-center blocks */
+.admin-block {
+  margin-bottom: 12px;
+  border-radius: var(--radius);
+}
+.admin-quick-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.admin-quick-actions .btn {
+  min-height: 48px;
+}
+.admin-postmatch.is-pending {
+  border: 1px solid #f0cf69;
+  background: linear-gradient(180deg, #fff8df 0%, #fff 100%);
+}
+.admin-postmatch #adminPendingCtaBtn {
+  margin-bottom: 8px;
+}
+.admin-tools details.card {
+  margin-bottom: 8px;
+}
+@media (max-width: 380px) {
+  .admin-quick-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Club external action buttons (Liga / Instagram) */
+.ext-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 12px 14px;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid rgba(19, 50, 79, 0.18);
+}
+.ext-btn__icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+.ext-btn:hover {
+  filter: brightness(1.02);
+}
+.ext-btn:active {
+  transform: translateY(1px);
+}
+.ext-btn:focus-visible {
+  outline: 2px solid rgba(77, 163, 255, 0.55);
+  outline-offset: 2px;
+}
+.ext-btn--liga {
+  background: linear-gradient(180deg, #163f65, #0f2f4d);
+  color: #fff;
+  border-color: rgba(73, 196, 139, 0.45);
+}
+.ext-btn--ig {
+  background: linear-gradient(180deg, #fff, #f7f0ff);
+  color: #1f2442;
+  border-color: rgba(177, 120, 255, 0.35);
+}
+.link-actions .ext-btn {
+  width: 100%;
+}
