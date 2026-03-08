@@ -35,6 +35,22 @@ const state = {
   }
 };
 
+const MATCH_RESULT_COLS = { home: 'result_home', away: 'result_away' };
+
+function getMatchResultTuple(match) {
+  if (!match) return [null, null];
+  const home = match[MATCH_RESULT_COLS.home];
+  const away = match[MATCH_RESULT_COLS.away];
+  if (home == null || away == null) return [null, null];
+  return [Number(home), Number(away)];
+}
+
+function formatMatchResult(match) {
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  if (homeGoals == null || awayGoals == null) return '-';
+  return `${homeGoals}-${awayGoals}`;
+}
+
 const FORMATIONS = {
   '1-2-3-1': {
     slots: ['GK', 'D1', 'D2', 'M1', 'M2', 'M3', 'F1'],
@@ -82,8 +98,9 @@ function mapPlayerRow(row) {
 }
 
 function mapMatchRow(row) {
-  const hasNumericResult = row.result_home !== null && row.result_home !== undefined && row.result_away !== null && row.result_away !== undefined;
-  const result = hasNumericResult ? `${row.result_home}-${row.result_away}` : (row.result || '-');
+  const result = row[MATCH_RESULT_COLS.home] == null || row[MATCH_RESULT_COLS.away] == null
+    ? '-'
+    : `${row[MATCH_RESULT_COLS.home]}-${row[MATCH_RESULT_COLS.away]}`;
   return {
     id: String(row.id),
     date: row.date_time || row.date,
@@ -91,8 +108,8 @@ function mapMatchRow(row) {
     home: row.home ?? row.is_home ?? true,
     venue: row.venue || 'Velòdrom F7',
     result,
-    result_home: row.result_home,
-    result_away: row.result_away
+    [MATCH_RESULT_COLS.home]: row[MATCH_RESULT_COLS.home],
+    [MATCH_RESULT_COLS.away]: row[MATCH_RESULT_COLS.away]
   };
 }
 
@@ -272,7 +289,13 @@ function getPlayers() {
 function getMatches() {
   const resultOverride = readJSON('matchResultsOverride', {});
   return [...state.data.matches]
-    .map((m) => ({ ...m, result: resultOverride[m.id] ?? m.result }))
+    .map((m) => {
+      const rawOverride = resultOverride[m.id];
+      const parsedOverride = parseResult(rawOverride);
+      if (!parsedOverride) return m;
+      const [homeGoals, awayGoals] = parsedOverride;
+      return { ...m, [MATCH_RESULT_COLS.home]: homeGoals, [MATCH_RESULT_COLS.away]: awayGoals, result: `${homeGoals}-${awayGoals}` };
+    })
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
@@ -286,7 +309,8 @@ function isPendingMatch(match) {
   if (!match) return false;
   const now = new Date();
   const past = new Date(match.date) < now;
-  const missingResult = match.result_home === null || match.result_home === undefined || match.result_away === null || match.result_away === undefined;
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  const missingResult = homeGoals == null || awayGoals == null;
   return past && missingResult;
 }
 
@@ -741,7 +765,7 @@ function renderCalendario() {
   $('calendarList').innerHTML = matches.map((m) => `
     <li>
       <button type="button" data-action="open-match" data-id="${m.id}">
-        ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${m.result}
+        ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${formatMatchResult(m)}
       </button>
       ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}
     </li>
@@ -753,10 +777,9 @@ function renderClub() {
   let PJ = 0, PG = 0, PE = 0, PP = 0, GF = 0, GC = 0;
 
   matches.forEach((m) => {
-    const parsed = parseResult(m.result);
-    if (!parsed) return;
+    const [a, b] = getMatchResultTuple(m);
+    if (a == null || b == null) return;
     PJ += 1;
-    const [a, b] = parsed;
     const our = m.home ? a : b;
     const their = m.home ? b : a;
     GF += our;
@@ -1017,7 +1040,7 @@ async function saveLineupForMatch(matchId, nextAssignments) {
 
   if (deleteError) {
     console.error('[lineups] delete error', deleteError);
-    showToast('Error guardando alineación: ' + (deleteError.message || deleteError.code), 'error');
+    showToast(isRlsPermissionError(deleteError) ? 'Permisos insuficientes (RLS)' : ('Error guardando alineación: ' + (deleteError.message || deleteError.code)), 'error');
     return false;
   }
 
@@ -1034,7 +1057,7 @@ async function saveLineupForMatch(matchId, nextAssignments) {
 
     if (upsertError) {
       console.error('[lineups] upsert error', upsertError);
-      showToast('Error guardando alineación: ' + (upsertError.message || upsertError.code), 'error');
+      showToast(isRlsPermissionError(upsertError) ? 'Permisos insuficientes (RLS)' : ('Error guardando alineación: ' + (upsertError.message || upsertError.code)), 'error');
       return false;
     }
   }
@@ -1189,6 +1212,11 @@ function showToastOrAlert(text, type = 'info') {
     return;
   }
   alert(text);
+}
+
+function isRlsPermissionError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42501' || message.includes('row-level security') || message.includes('permission denied');
 }
 
 function loadImage(src) {
@@ -1529,16 +1557,10 @@ function openPostMatchModal(matchId) {
 
   let homeVal = '';
   let awayVal = '';
-  if (match.result_home !== null && match.result_home !== undefined && match.result_away !== null && match.result_away !== undefined) {
-    homeVal = match.result_home;
-    awayVal = match.result_away;
-  } else {
-    const parsed = parseResult(match.result);
-    if (parsed) {
-      const [homeGoals, awayGoals] = parsed;
-      homeVal = homeGoals;
-      awayVal = awayGoals;
-    }
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  if (homeGoals != null && awayGoals != null) {
+    homeVal = homeGoals;
+    awayVal = awayGoals;
   }
 
   if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
@@ -1574,7 +1596,7 @@ async function savePostMatchModal() {
     return;
   }
 
-  const payload = { result_home, result_away, result: `${result_home}-${result_away}` };
+  const payload = { [MATCH_RESULT_COLS.home]: result_home, [MATCH_RESULT_COLS.away]: result_away };
   const { data: updatedMatch, error: matchError } = await supabaseClient
     .from('matches')
     .update(payload)
@@ -1626,7 +1648,7 @@ function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
   $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
-  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
+  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${formatMatchResult(m)} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
@@ -1911,7 +1933,7 @@ function bindEvents() {
           return;
         }
         const [homeGoals, awayGoals] = parsed;
-        supabaseClient.from('matches').update({ result_home: homeGoals, result_away: awayGoals, result: `${homeGoals}-${awayGoals}` }).eq('id', id)
+        supabaseClient.from('matches').update({ [MATCH_RESULT_COLS.home]: homeGoals, [MATCH_RESULT_COLS.away]: awayGoals }).eq('id', id)
           .then(async ({ error }) => {
             if (error) {
               showToast(error.message || 'Error guardando resultado', 'error');
