@@ -113,7 +113,6 @@ function mapMatchRow(row) {
   };
 }
 
-
 function normalizeAttendanceStatus(status) {
   const value = String(status || '').toLowerCase();
   if (value === 'yes') return 'yes';
@@ -280,7 +279,6 @@ function clearMatchResultOverride(matchId) {
   }
 }
 
-
 function getPlayers() {
   const override = readJSON('playerStatsOverride', {});
   return state.data.players.map((p) => ({ ...p, stats: { ...p.stats, ...(override[p.id] || {}) } }));
@@ -298,7 +296,6 @@ function getMatches() {
     })
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
-
 
 function getUpcomingMatch() {
   const now = new Date();
@@ -421,14 +418,12 @@ function formatMatchShort(match) {
   return `${date} · ${match.rival}`;
 }
 
-
 function statusLabel(status) {
   if (status === 'yes') return '✅ Confirmado';
   if (status === 'no') return '❌ Baja';
   if (status === 'maybe') return '⏳ Dudoso';
   return '⏳ Pendiente';
 }
-
 
 function normalizeName(value) {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -546,7 +541,6 @@ async function fetchCurrentProfile(userId) {
   refreshAdminUI();
   return profile;
 }
-
 
 function renderAuthDebugPanel() {
   const app = $('app');
@@ -821,7 +815,6 @@ function renderClub() {
   }
 }
 
-
 async function loadMvpData(selectedMatchId) {
   state.mvp.selectedMatchId = selectedMatchId || state.mvp.selectedMatchId;
   state.mvp.votesByPlayerForSelected = {};
@@ -848,7 +841,6 @@ async function loadMvpData(selectedMatchId) {
     }
   });
 }
-
 
 async function resolveMvpPayload(matchId, playerId) {
   const { data: match, error: matchError } = await supabaseClient
@@ -966,11 +958,9 @@ function renderMvp() {
   }
 }
 
-
 function hydrateLineupEditor(matchId, options = {}) {
   const force = Boolean(options.force);
   const sameMatch = state.lineupEditor.selectedMatchId === matchId;
-  // Evita pisar el draft local mientras el admin edita el mismo partido sin guardar.
   if (!force && sameMatch && state.lineupEditor.isDirty) return false;
 
   const assignments = { ...(getLineupAssignments(matchId) || {}) };
@@ -1042,50 +1032,47 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
   };
 
- const showLineupSaveError = (error) => {
-  console.error('[lineups] save failed', error);
-  if (isRlsPermissionError(error)) {
-    showToast('Permisos insuficientes (RLS)', 'error');
-    return;
-  }
-  showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
-};
-
-const { error: deleteError } = await supabaseClient
-  .from('lineups')
-  .delete()
-  .eq('match_id', matchId);
-
-if (deleteError) {
-  showLineupSaveError(deleteError);
-  console.error('[lineups] delete error', deleteError);
-  return false;
-}
-
-const rows = Object.entries(nextAssignments || {})
-  .map(([positionSlot, playerId]) => ({
-    match_id: matchId,
-    player_id: playerId,
-    position_slot: positionSlot
-  }))
-  .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
-
-if (rows.length) {
-  const { error: insertError } = await supabaseClient
+  const { error: deleteError } = await supabaseClient
     .from('lineups')
-    .insert(rows);
+    .delete()
+    .eq('match_id', matchId);
 
-  if (insertError) {
-    showLineupSaveError(insertError);
-    console.error('[lineups] insert error', insertError);
+  if (deleteError) {
+    showLineupSaveError(deleteError);
+    console.error('[lineups] delete error', deleteError);
     return false;
   }
-}
 
-const { data: finalRows, error: finalError } = await supabaseClient
-  .from('lineups')
-  .select('match_id, player_id, position_slot')
-  .eq('match_id', matchId);
+  const rows = Object.entries(nextAssignments || {})
+    .map(([positionSlot, playerId]) => ({
+      match_id: matchId,
+      player_id: playerId,
+      position_slot: positionSlot
+    }))
+    .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
+
+  if (rows.length) {
+    const { error: insertError } = await supabaseClient
+      .from('lineups')
+      .insert(rows);
+
+    if (insertError) {
+      showLineupSaveError(insertError);
+      console.error('[lineups] insert error', insertError);
+      return false;
+    }
+  }
+
+  const { data: finalRows, error: finalError } = await supabaseClient
+    .from('lineups')
+    .select('match_id, player_id, position_slot')
+    .eq('match_id', matchId);
+
+  if (finalError) {
+    console.error('[lineups] reload error', finalError);
+    showToast('Error recargando alineación: ' + (finalError.message || finalError.code), 'error');
+    return false;
+  }
 
   state.lineupsByMatch[matchId] = {};
   (finalRows || []).forEach((row) => {
@@ -1467,7 +1454,6 @@ async function generateInstagramPoster(matchId) {
   }
 }
 
-
 function clampStatValue(value) {
   const n = Number(value ?? 0);
   if (!Number.isFinite(n)) return 0;
@@ -1553,7 +1539,6 @@ function renderPostMatchPlayersList() {
     </div>`;
   }).join('')}</div>`;
 }
-
 
 function openPostMatchModal(matchId) {
   if (!isAdmin()) {
@@ -1646,7 +1631,6 @@ async function savePostMatchModal() {
   renderAll();
   showToast('Post-partido actualizado', 'success');
 }
-
 
 function openAdminLineupForMatch(matchId) {
   if (!isAdmin()) return showToast('Solo admin', 'error');
@@ -1901,7 +1885,6 @@ function bindEvents() {
     }
   });
 
-
   $('mvpMatchSelector').addEventListener('change', async (e) => {
     state.mvp.selectedMatchId = e.target.value;
     await loadMvpData(state.mvp.selectedMatchId);
@@ -2065,6 +2048,7 @@ function bindEvents() {
       syncPostEditedBadge(card, draft);
     }
   });
+
   window.addEventListener('hashchange', route);
 }
 
