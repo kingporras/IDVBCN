@@ -30,9 +30,26 @@ const state = {
     formation: '1-2-3-1',
     selectedSlot: 'GK',
     assignments: {},
-    originalAssignments: {}
+    originalAssignments: {},
+    isDirty: false
   }
 };
+
+const MATCH_RESULT_COLS = { home: 'result_home', away: 'result_away' };
+
+function getMatchResultTuple(match) {
+  if (!match) return [null, null];
+  const home = match[MATCH_RESULT_COLS.home];
+  const away = match[MATCH_RESULT_COLS.away];
+  if (home == null || away == null) return [null, null];
+  return [Number(home), Number(away)];
+}
+
+function formatMatchResult(match) {
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  if (homeGoals == null || awayGoals == null) return '-';
+  return `${homeGoals}-${awayGoals}`;
+}
 
 const FORMATIONS = {
   '1-2-3-1': {
@@ -81,8 +98,9 @@ function mapPlayerRow(row) {
 }
 
 function mapMatchRow(row) {
-  const hasNumericResult = row.result_home !== null && row.result_home !== undefined && row.result_away !== null && row.result_away !== undefined;
-  const result = hasNumericResult ? `${row.result_home}-${row.result_away}` : (row.result || '-');
+  const result = row[MATCH_RESULT_COLS.home] == null || row[MATCH_RESULT_COLS.away] == null
+    ? '-'
+    : `${row[MATCH_RESULT_COLS.home]}-${row[MATCH_RESULT_COLS.away]}`;
   return {
     id: String(row.id),
     date: row.date_time || row.date,
@@ -90,8 +108,8 @@ function mapMatchRow(row) {
     home: row.home ?? row.is_home ?? true,
     venue: row.venue || 'Velòdrom F7',
     result,
-    result_home: row.result_home,
-    result_away: row.result_away
+    [MATCH_RESULT_COLS.home]: row[MATCH_RESULT_COLS.home],
+    [MATCH_RESULT_COLS.away]: row[MATCH_RESULT_COLS.away]
   };
 }
 
@@ -271,7 +289,13 @@ function getPlayers() {
 function getMatches() {
   const resultOverride = readJSON('matchResultsOverride', {});
   return [...state.data.matches]
-    .map((m) => ({ ...m, result: resultOverride[m.id] ?? m.result }))
+    .map((m) => {
+      const rawOverride = resultOverride[m.id];
+      const parsedOverride = parseResult(rawOverride);
+      if (!parsedOverride) return m;
+      const [homeGoals, awayGoals] = parsedOverride;
+      return { ...m, [MATCH_RESULT_COLS.home]: homeGoals, [MATCH_RESULT_COLS.away]: awayGoals, result: `${homeGoals}-${awayGoals}` };
+    })
     .sort((a, b) => new Date(a.date) - new Date(b.date));
 }
 
@@ -285,7 +309,8 @@ function isPendingMatch(match) {
   if (!match) return false;
   const now = new Date();
   const past = new Date(match.date) < now;
-  const missingResult = match.result_home === null || match.result_home === undefined || match.result_away === null || match.result_away === undefined;
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  const missingResult = homeGoals == null || awayGoals == null;
   return past && missingResult;
 }
 
@@ -359,7 +384,7 @@ function renderLineupField(container, assignments, formation, options = {}) {
   }).join('');
 }
 
-function renderLineupForMatch(containerId, messageId, matchId) {
+function renderLineupForMatch(containerId, messageId, matchId, options = {}) {
   const container = $(containerId);
   const message = $(messageId);
   if (!container || !message) return;
@@ -370,7 +395,7 @@ function renderLineupForMatch(containerId, messageId, matchId) {
   if (!hasLineup) {
     container.className = 'lineup-field hidden';
     container.innerHTML = '';
-    message.textContent = 'Sin alineación definida';
+    message.textContent = options.emptyMessage || 'Sin alineación definida';
     return;
   }
 
@@ -573,10 +598,13 @@ function renderHome() {
   if (!players.length) {
     $('myStats').innerHTML = '<p>Sin jugadores cargados todavía.</p>';
     $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
-    $('lineupHomeMessage').textContent = 'Sin alineación definida';
+    $('lineupHomeMessage').textContent = 'Alineación aún no publicada';
+    if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = 'Se mostrará aquí cuando el cuerpo técnico la publique.';
     $('lineupFieldHome').classList.add('hidden');
     $('lineupFieldHome').innerHTML = '';
     $('nextMatchText').textContent = 'Sin partido próximo';
+    if ($('nextMatchMeta')) $('nextMatchMeta').textContent = 'Cuando haya fecha confirmada la verás aquí.';
+    $('goConfirmBtn').textContent = 'Ir a Convocatoria';
     return;
   }
 
@@ -592,7 +620,21 @@ function renderHome() {
     ['Rojas', me.stats.rojas], ['MVPs', (votes[me.id] || 0)]
   ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
 
-  $('nextMatchText').textContent = `${nextMatch ? `${formatDate(nextMatch.date)} vs ${nextMatch.rival}` : 'Sin partido próximo'}`;
+  $('nextMatchText').textContent = nextMatch ? `vs ${nextMatch.rival}` : 'Sin partido próximo';
+  if ($('nextMatchMeta')) {
+    $('nextMatchMeta').textContent = nextMatch
+      ? `${formatDate(nextMatch.date)} · ${nextMatch.home ? 'Casa' : 'Fuera'} · ${nextMatch.venue || 'Velòdrom F7'}`
+      : 'Aún no hay rival, fecha y campo cargados.';
+  }
+
+  const canConfirmNextMatch = Boolean(nextMatch && isUuid(nextMatch.id));
+  const meStatus = canConfirmNextMatch && state.selectedMatchId === nextMatch.id
+    ? getConvocatoriaStatusForPlayer(me.id)
+    : 'pending';
+  $('goConfirmBtn').textContent = !canConfirmNextMatch
+    ? 'Ir a Convocatoria'
+    : (meStatus === 'yes' ? 'Asistencia confirmada · Cambiar' : 'Confirmar asistencia');
+
   $('homePendingHint').textContent = state.pendingMatches.length ? `Último partido: pendiente (${state.pendingMatches[0].rival})` : '';
 
   const adminPendingCard = $('adminPendingCard');
@@ -605,7 +647,8 @@ function renderHome() {
   }
 
   $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
-  renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null);
+  if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = nextMatch ? 'Solo lectura · publicación del cuerpo técnico.' : '';
+  renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null, { emptyMessage: 'Alineación aún no publicada' });
 }
 
 function renderConvocatoria() {
@@ -722,7 +765,7 @@ function renderCalendario() {
   $('calendarList').innerHTML = matches.map((m) => `
     <li>
       <button type="button" data-action="open-match" data-id="${m.id}">
-        ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${m.result}
+        ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${formatMatchResult(m)}
       </button>
       ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}
     </li>
@@ -734,10 +777,9 @@ function renderClub() {
   let PJ = 0, PG = 0, PE = 0, PP = 0, GF = 0, GC = 0;
 
   matches.forEach((m) => {
-    const parsed = parseResult(m.result);
-    if (!parsed) return;
+    const [a, b] = getMatchResultTuple(m);
+    if (a == null || b == null) return;
     PJ += 1;
-    const [a, b] = parsed;
     const our = m.home ? a : b;
     const their = m.home ? b : a;
     GF += our;
@@ -770,7 +812,7 @@ function renderClub() {
     linksCard.id = 'clubLinksCard';
     linksCard.className = 'card card--accent';
     linksCard.style.setProperty('--accent-color', 'var(--dorado)');
-    linksCard.innerHTML = `<h2 class="section-title">Enlaces del club</h2><div class="link-actions"><button type="button" id="clubInstagramBtn" class="btn btn-secondary">Instagram</button><button type="button" id="clubLeagueBtn" class="btn btn-secondary">Liga (Apúntamelo)</button><button type="button" id="clubTableBtn" class="btn btn-gold">Ver clasificación</button></div>`;
+    linksCard.innerHTML = `<h2 class="section-title">Enlaces del club</h2><div class="link-actions"><button type="button" id="clubInstagramBtn" class="btn btn-secondary ext-btn ext-btn--ig" aria-label="Abrir Instagram"><span class="ext-btn__icon" aria-hidden="true">📸</span><span>Instagram</span></button><button type="button" id="clubLeagueBtn" class="btn btn-secondary ext-btn ext-btn--liga" aria-label="Abrir Liga"><span class="ext-btn__icon" aria-hidden="true">⚽</span><span>Liga (Apúntamelo)</span></button><button type="button" id="clubTableBtn" class="btn btn-gold">Ver clasificación</button></div>`;
     document.querySelector('[data-view="club"]').appendChild(linksCard);
     const url = 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0';
     $('clubInstagramBtn')?.addEventListener('click', () => window.open('https://instagram.com/interdeverdunbcn', '_blank', 'noopener'));
@@ -925,7 +967,12 @@ function renderMvp() {
 }
 
 
-function hydrateLineupEditor(matchId) {
+function hydrateLineupEditor(matchId, options = {}) {
+  const force = Boolean(options.force);
+  const sameMatch = state.lineupEditor.selectedMatchId === matchId;
+  // Evita pisar el draft local mientras el admin edita el mismo partido sin guardar.
+  if (!force && sameMatch && state.lineupEditor.isDirty) return false;
+
   const assignments = { ...(getLineupAssignments(matchId) || {}) };
   const formation = detectFormation(assignments);
   const slots = FORMATIONS[formation].slots;
@@ -939,6 +986,8 @@ function hydrateLineupEditor(matchId) {
   state.lineupEditor.selectedSlot = slots[0];
   state.lineupEditor.assignments = cleaned;
   state.lineupEditor.originalAssignments = { ...cleaned };
+  state.lineupEditor.isDirty = false;
+  return true;
 }
 
 function normalizeAssignmentsForFormation(assignments, formation) {
@@ -966,6 +1015,7 @@ function assignLineupPlayer(slot, playerIdRaw) {
   }
 
   state.lineupEditor.assignments = assignments;
+  state.lineupEditor.isDirty = true;
 }
 
 async function saveLineupForMatch(matchId, nextAssignments) {
@@ -983,31 +1033,40 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     return false;
   }
 
+  const showLineupSaveError = (error) => {
+    console.error('[lineups] save failed', error);
+    if (isRlsPermissionError(error)) {
+      showToast('Permisos insuficientes (RLS)', 'error');
+      return;
+    }
+    showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
+  };
+
   const { error: deleteError } = await supabaseClient
     .from('lineups')
     .delete()
     .eq('match_id', matchId);
 
   if (deleteError) {
-    console.error('[lineups] delete error', deleteError);
-    showToast('Error guardando alineación: ' + (deleteError.message || deleteError.code), 'error');
+    showLineupSaveError(deleteError);
     return false;
   }
 
-  const upsertRows = Object.entries(nextAssignments || {}).map(([slot, playerId]) => ({
-    match_id: matchId,
-    player_id: playerId,
-    position_slot: slot
-  }));
+  const rows = Object.entries(nextAssignments || {})
+    .map(([positionSlot, playerId]) => ({
+      match_id: matchId,
+      player_id: playerId,
+      position_slot: positionSlot
+    }))
+    .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
 
-  if (upsertRows.length) {
-    const { error: upsertError } = await supabaseClient
+  if (rows.length) {
+    const { error: insertError } = await supabaseClient
       .from('lineups')
-      .upsert(upsertRows, { onConflict: 'match_id,player_id' });
+      .insert(rows);
 
-    if (upsertError) {
-      console.error('[lineups] upsert error', upsertError);
-      showToast('Error guardando alineación: ' + (upsertError.message || upsertError.code), 'error');
+    if (insertError) {
+      showLineupSaveError(insertError);
       return false;
     }
   }
@@ -1028,6 +1087,7 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
   });
 
+  state.lineupEditor.isDirty = false;
   return true;
 }
 
@@ -1051,7 +1111,7 @@ function renderLineupEditor() {
     hydrateLineupEditor(state.lineupEditor.selectedMatchId);
   } else {
     state.lineupEditor.selectedMatchId = matches[0].id;
-    hydrateLineupEditor(state.lineupEditor.selectedMatchId);
+    hydrateLineupEditor(state.lineupEditor.selectedMatchId, { force: true });
   }
 
   matchSelect.innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
@@ -1097,11 +1157,15 @@ function renderAdmin() {
 
   const matches = getMatches();
   const players = getPlayers();
-  adminView.innerHTML = `<article class="card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="chips"><button type="button" id="quickPostBtn" class="btn btn-secondary">Post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Alineación</button><button type="button" id="quickConvBtn" class="btn btn-gold">Convocatoria</button></div></article><details class="card" open><summary>Post-partido pendiente</summary><ul id="adminPendingListAccordion" class="list"></ul></details><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details><details id="lineupEditorSection" class="card" open><summary>Alineación por partido</summary><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></details>`;
+  const hasPending = state.pendingMatches.length > 0;
+  const pendingPrimary = state.pendingMatches[0] || null;
+
+  adminView.innerHTML = `<section class="admin-block admin-quick card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="admin-quick-actions"><button type="button" id="quickPostBtn" class="btn btn-secondary">Ir a post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Ir a alineación</button><button type="button" id="quickImageBtn" class="btn btn-gold">Generar imagen</button><button type="button" id="quickConvBtn" class="btn btn-secondary">Ir a Convocatoria</button></div></section><section id="adminPostMatchBlock" class="admin-block admin-postmatch card ${hasPending ? 'is-pending' : ''}"><h3 class="section-title">Post-partido pendiente</h3><p class="muted">${hasPending ? `Pendiente: ${formatMatchShort(pendingPrimary)}` : 'Sin pendientes por actualizar.'}</p>${hasPending ? `<button type="button" id="adminPendingCtaBtn" class="btn btn-primary">Completar post-partido</button>` : ''}<ul id="adminPendingListAccordion" class="list"></ul></section><section id="lineupEditorSection" class="admin-block admin-lineup card" open><h3 class="section-title">Alineación por partido</h3><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></section><section class="admin-block admin-tools"><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details></section>`;
   $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
   $('adminPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
   $('adminPendingListAccordion').innerHTML = state.pendingMatches.length ? state.pendingMatches.map((m) => `<li><button class="btn btn-secondary" type="button" data-action="admin-open-postmatch" data-id="${m.id}">${formatMatchShort(m)}</button></li>`).join('') : '<li class="muted">Sin pendientes.</li>';
   $('quickPostBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
+  $('adminPendingCtaBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
   $('quickLineupBtn')?.addEventListener('click', () => {
     const pendingSelected = state.postMatchEditor?.matchId;
     const preferredMatchId = isUuid(pendingSelected)
@@ -1109,18 +1173,19 @@ function renderAdmin() {
       : (isUuid(state.lineupEditor.selectedMatchId) ? state.lineupEditor.selectedMatchId : null);
     if (preferredMatchId) {
       state.lineupEditor.selectedMatchId = preferredMatchId;
-      hydrateLineupEditor(preferredMatchId);
+      hydrateLineupEditor(preferredMatchId, { force: true });
     }
     window.location.hash = '#admin';
     renderAdmin();
     route();
     requestAnimationFrame(() => (document.querySelector('#lineupEditorSection') || document.querySelector('#lineupFieldAdmin'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
   });
+  $('quickImageBtn')?.addEventListener('click', () => document.getElementById('adminImageBtn')?.click());
   $('quickConvBtn')?.addEventListener('click', () => window.location.hash = '#convocatoria');
-  $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value); renderLineupEditor(); });
+  $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value, { force: true }); renderLineupEditor(); });
   $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
   $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => { assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value); renderLineupEditor(); });
-  $('saveLineupBtn')?.addEventListener('click', async () => { const matchId = state.lineupEditor.selectedMatchId; const formation = state.lineupEditor.formation; const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation); const ok = await saveLineupForMatch(matchId, assignments); if (!ok) return; hydrateLineupEditor(matchId); renderLineupEditor(); renderHome(); showToast('Alineación guardada', 'success'); });
+  $('saveLineupBtn')?.addEventListener('click', async () => { const matchId = state.lineupEditor.selectedMatchId; const formation = state.lineupEditor.formation; const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation); const ok = await saveLineupForMatch(matchId, assignments); if (!ok) return; hydrateLineupEditor(matchId, { force: true }); renderLineupEditor(); renderHome(); showToast('Alineación guardada', 'success'); });
   const adminImageBtn = $('adminImageBtn');
   if (adminImageBtn) {
     adminImageBtn.onclick = () => {
@@ -1157,6 +1222,11 @@ function showToastOrAlert(text, type = 'info') {
     return;
   }
   alert(text);
+}
+
+function isRlsPermissionError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return error?.code === '42501' || message.includes('row-level security') || message.includes('permission denied');
 }
 
 function loadImage(src) {
@@ -1497,15 +1567,10 @@ function openPostMatchModal(matchId) {
 
   let homeVal = '';
   let awayVal = '';
-  if (match.result_home !== null && match.result_home !== undefined && match.result_away !== null && match.result_away !== undefined) {
-    homeVal = match.result_home;
-    awayVal = match.result_away;
-  } else {
-    const parsed = parseResult(match.result);
-    if (parsed) {
-      homeVal = parsed.home;
-      awayVal = parsed.away;
-    }
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  if (homeGoals != null && awayGoals != null) {
+    homeVal = homeGoals;
+    awayVal = awayGoals;
   }
 
   if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
@@ -1541,7 +1606,13 @@ async function savePostMatchModal() {
     return;
   }
 
-  const { error: matchError } = await supabaseClient.from('matches').update({ result_home, result_away }).eq('id', matchId);
+  const payload = { [MATCH_RESULT_COLS.home]: result_home, [MATCH_RESULT_COLS.away]: result_away };
+  const { data: updatedMatch, error: matchError } = await supabaseClient
+    .from('matches')
+    .update(payload)
+    .eq('id', matchId)
+    .select('*')
+    .single();
   if (matchError) {
     showToast(matchError.message || 'Error guardando resultado', 'error');
     return;
@@ -1550,7 +1621,7 @@ async function savePostMatchModal() {
   clearMatchResultOverride(matchId);
   const idx = state.data.matches.findIndex((m) => m.id === matchId);
   if (idx >= 0) {
-    state.data.matches[idx] = mapMatchRow({ ...state.data.matches[idx], result_home, result_away });
+    state.data.matches[idx] = mapMatchRow(updatedMatch || { ...state.data.matches[idx], ...payload });
   }
   await refreshPostMatchState();
   renderHome();
@@ -1587,7 +1658,7 @@ function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
   $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
-  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${m.result} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
+  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${formatMatchResult(m)} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
@@ -1718,7 +1789,8 @@ function bindEvents() {
   });
 
   $('goConfirmBtn').addEventListener('click', () => {
-    state.selectedMatchId = getUpcomingMatch()?.id;
+    const nextMatchId = getUpcomingMatch()?.id;
+    if (isUuid(nextMatchId)) state.selectedMatchId = nextMatchId;
     window.location.hash = '#convocatoria';
     renderConvocatoria();
     route();
@@ -1747,6 +1819,7 @@ function bindEvents() {
 
       state.lineupEditor.formation = nextFormation;
       state.lineupEditor.assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, nextFormation);
+      state.lineupEditor.isDirty = true;
       if (!FORMATIONS[nextFormation].slots.includes(state.lineupEditor.selectedSlot)) {
         state.lineupEditor.selectedSlot = FORMATIONS[nextFormation].slots[0];
       }
@@ -1823,23 +1896,6 @@ function bindEvents() {
     }
   });
 
-  const genBtn = $('generateImageBtn');
-  if (genBtn) {
-    genBtn.onclick = () => {
-      const id = state.selectedMatchId;
-      if (!id) return showToastOrAlert('Selecciona un partido para generar el cartel', 'error');
-      generateInstagramPoster(id);
-    };
-  }
-
-  const adminBtn = $('adminImageBtn');
-  if (adminBtn) {
-    adminBtn.onclick = () => {
-      const id = state.selectedMatchId || getUpcomingMatch?.()?.id;
-      if (!id) return showToastOrAlert('No hay partido seleccionado ni próximo partido disponible', 'error');
-      generateInstagramPoster(id);
-    };
-  }
 
   $('mvpMatchSelector').addEventListener('change', async (e) => {
     state.mvp.selectedMatchId = e.target.value;
@@ -1886,7 +1942,8 @@ function bindEvents() {
           showToast('Resultado inválido', 'error');
           return;
         }
-        supabaseClient.from('matches').update({ result_home: parsed.home, result_away: parsed.away }).eq('id', id)
+        const [homeGoals, awayGoals] = parsed;
+        supabaseClient.from('matches').update({ [MATCH_RESULT_COLS.home]: homeGoals, [MATCH_RESULT_COLS.away]: awayGoals }).eq('id', id)
           .then(async ({ error }) => {
             if (error) {
               showToast(error.message || 'Error guardando resultado', 'error');
