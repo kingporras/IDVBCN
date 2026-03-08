@@ -1042,45 +1042,50 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
   };
 
-  const { error: deleteError } = await supabaseClient
-    .from('lineups')
-    .delete()
-    .eq('match_id', matchId);
+ const showLineupSaveError = (error) => {
+  console.error('[lineups] save failed', error);
+  if (isRlsPermissionError(error)) {
+    showToast('Permisos insuficientes (RLS)', 'error');
+    return;
+  }
+  showToast('No se pudo guardar la alineación. Revisa la consola (payload/columnas).', 'error');
+};
 
-  if (deleteError) {
-    showLineupSaveError(deleteError);
+const { error: deleteError } = await supabaseClient
+  .from('lineups')
+  .delete()
+  .eq('match_id', matchId);
+
+if (deleteError) {
+  showLineupSaveError(deleteError);
+  console.error('[lineups] delete error', deleteError);
+  return false;
+}
+
+const rows = Object.entries(nextAssignments || {})
+  .map(([positionSlot, playerId]) => ({
+    match_id: matchId,
+    player_id: playerId,
+    position_slot: positionSlot
+  }))
+  .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
+
+if (rows.length) {
+  const { error: insertError } = await supabaseClient
+    .from('lineups')
+    .insert(rows);
+
+  if (insertError) {
+    showLineupSaveError(insertError);
+    console.error('[lineups] insert error', insertError);
     return false;
   }
+}
 
-  const rows = Object.entries(nextAssignments || {})
-    .map(([positionSlot, playerId]) => ({
-      match_id: matchId,
-      player_id: playerId,
-      position_slot: positionSlot
-    }))
-    .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
-
-  if (rows.length) {
-    const { error: insertError } = await supabaseClient
-      .from('lineups')
-      .insert(rows);
-
-    if (insertError) {
-      showLineupSaveError(insertError);
-      return false;
-    }
-  }
-
-  const { data: finalRows, error: finalError } = await supabaseClient
-    .from('lineups')
-    .select('match_id, player_id, position_slot')
-    .eq('match_id', matchId);
-
-  if (finalError) {
-    console.error('[lineups] reload error', finalError);
-    showToast('Error recargando alineación: ' + (finalError.message || finalError.code), 'error');
-    return false;
-  }
+const { data: finalRows, error: finalError } = await supabaseClient
+  .from('lineups')
+  .select('match_id, player_id, position_slot')
+  .eq('match_id', matchId);
 
   state.lineupsByMatch[matchId] = {};
   (finalRows || []).forEach((row) => {
