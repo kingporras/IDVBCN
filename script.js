@@ -24,6 +24,11 @@ const state = {
     globalTotals: {},
     lastVotePayload: '-'
   },
+  teamStats: {
+    tab: 'goals',
+    attendanceStatus: 'idle',
+    attendanceByPlayerId: null
+  },
   lineupsByMatch: {},
   lineupEditor: {
     selectedMatchId: null,
@@ -450,6 +455,148 @@ function getVotesTotals() {
   return state.mvp.globalTotals || {};
 }
 
+function formatTeamStatValue(value, type) {
+  if (type === 'attendance') return `${Number(value || 0)} asist.`;
+  return Number(value || 0);
+}
+
+function computeTeamStatsModel(players, votesTotals, attendanceByPlayerId) {
+  const safePlayers = Array.isArray(players) ? players : [];
+  const safeVotes = votesTotals || {};
+  const safeAttendance = attendanceByPlayerId || {};
+
+  const goals = safePlayers
+    .map((player) => ({ id: player.id, name: player.name || 'Jugador', value: Number(player?.stats?.goles || 0) }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+  const assists = safePlayers
+    .map((player) => ({ id: player.id, name: player.name || 'Jugador', value: Number(player?.stats?.asistencias || 0) }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+  const mvp = safePlayers
+    .map((player) => ({ id: player.id, name: player.name || 'Jugador', value: Number(safeVotes[player.id] || 0) }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+  const attendance = safePlayers
+    .map((player) => ({ id: player.id, name: player.name || 'Jugador', value: Number(safeAttendance[player.id] || 0) }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+
+  const withData = (entry, type = 'default') => {
+    if (!entry || Number(entry.value || 0) <= 0) return { name: 'Sin datos', value: '-' };
+    return { name: entry.name, value: formatTeamStatValue(entry.value, type) };
+  };
+
+  return {
+    kpis: {
+      topScorer: withData(goals[0]),
+      topAssistant: withData(assists[0]),
+      topAttendance: withData(attendance[0], 'attendance')
+    },
+    rankings: {
+      goals: goals.slice(0, 5),
+      assists: assists.slice(0, 5),
+      attendance: attendance.slice(0, 5),
+      mvp: mvp.slice(0, 5)
+    }
+  };
+}
+
+function renderTeamStatsBlock() {
+  const container = $('myStats');
+  if (!container) return;
+
+  state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
+  const activeTab = state.teamStats.tab || 'goals';
+  const players = getPlayers();
+
+  if (!players.length) {
+    container.innerHTML = '<section class="team-stats"><p class="team-stats__empty">Aún no hay estadísticas globales disponibles.</p></section>';
+    return;
+  }
+
+  const votes = getVotesTotals();
+  const model = computeTeamStatsModel(players, votes, state.teamStats.attendanceByPlayerId);
+  const tabs = [
+    { id: 'goals', label: 'Goles' },
+    { id: 'assists', label: 'Asist.' },
+    { id: 'attendance', label: 'Asistencia' },
+    { id: 'mvp', label: 'MVP' }
+  ];
+  const ranking = model.rankings[activeTab] || [];
+
+  const rankItems = ranking.length
+    ? ranking.map((item, index) => `
+      <li class="team-stats__rank-row">
+        <span class="team-stats__rank-pos">${index + 1}</span>
+        <span class="team-stats__rank-name">${item.name}</span>
+        <strong class="team-stats__rank-value">${formatTeamStatValue(item.value, activeTab)}</strong>
+      </li>
+    `).join('')
+    : '<li class="team-stats__empty">Aún no hay estadísticas globales disponibles.</li>';
+
+  container.innerHTML = `
+    <section class="team-stats" aria-label="Estadísticas del equipo">
+      <header class="team-stats__header">
+        <h3 class="team-stats__title">Estadísticas del equipo</h3>
+      </header>
+      <div class="team-stats__kpis">
+        <article class="team-stats__kpi"><small>Máximo goleador</small><strong>${model.kpis.topScorer.name}</strong><span>${model.kpis.topScorer.value}</span></article>
+        <article class="team-stats__kpi"><small>Máximo asistente</small><strong>${model.kpis.topAssistant.name}</strong><span>${model.kpis.topAssistant.value}</span></article>
+        <article class="team-stats__kpi"><small>Mejor asistencia</small><strong>${model.kpis.topAttendance.name}</strong><span>${model.kpis.topAttendance.value}</span></article>
+      </div>
+      <div class="team-stats__tabs" role="tablist" aria-label="Ranking por categoría">
+        ${tabs.map((tab) => `<button type="button" class="team-stats__tab ${activeTab === tab.id ? 'is-active' : ''}" role="tab" aria-selected="${String(activeTab === tab.id)}" data-action="team-stats-tab" data-tab="${tab.id}">${tab.label}</button>`).join('')}
+      </div>
+      <ol class="team-stats__rank">${rankItems}</ol>
+    </section>
+  `;
+}
+
+async function maybeLoadTeamAttendanceTotals() {
+  state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
+  if (!supabaseClient || state.teamStats.attendanceStatus !== 'idle') return;
+
+  state.teamStats.attendanceStatus = 'loading';
+
+  try {
+    const { data: profiles, error: profilesError } = await supabaseClient
+      .from('profiles')
+      .select('id,player_id');
+
+    if (profilesError) throw profilesError;
+
+    const profileToPlayer = {};
+    (profiles || []).forEach((profile) => {
+      if (profile?.id && profile?.player_id) {
+        profileToPlayer[String(profile.id)] = String(profile.player_id);
+      }
+    });
+
+    const { data: attendanceRows, error: attendanceError } = await supabaseClient
+      .from('attendance')
+      .select('user_id,status');
+
+    if (attendanceError) throw attendanceError;
+
+    const attendanceByPlayerId = {};
+    (attendanceRows || []).forEach((row) => {
+      if (String(row?.status || '').toLowerCase() !== 'yes') return;
+      const playerId = profileToPlayer[String(row?.user_id || '')];
+      if (!playerId) return;
+      attendanceByPlayerId[playerId] = (attendanceByPlayerId[playerId] || 0) + 1;
+    });
+
+    state.teamStats.attendanceByPlayerId = attendanceByPlayerId;
+    state.teamStats.attendanceStatus = 'ready';
+  } catch (error) {
+    console.warn('[team-stats] attendance unavailable', error);
+    state.teamStats.attendanceByPlayerId = null;
+    state.teamStats.attendanceStatus = 'error';
+  }
+
+  renderTeamStatsBlock();
+}
+
 function getSessionUser() {
   const user = state.session?.user;
   if (!user) return null;
@@ -588,9 +735,10 @@ function route() {
 }
 
 function renderHome() {
+  state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
   const players = getPlayers();
   if (!players.length) {
-    $('myStats').innerHTML = '<p>Sin jugadores cargados todavía.</p>';
+    renderTeamStatsBlock();
     $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
     $('lineupHomeMessage').textContent = 'Alineación aún no publicada';
     if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = 'Se mostrará aquí cuando el cuerpo técnico la publique.';
@@ -609,10 +757,8 @@ function renderHome() {
     .map((p) => ({ ...p, totalMvp: (votes[p.id] || 0) }))
     .sort((a, b) => b.totalMvp - a.totalMvp);
 
-  $('myStats').innerHTML = [
-    ['Goles', me.stats.goles], ['Asist.', me.stats.asistencias], ['Amar.', me.stats.amarillas],
-    ['Rojas', me.stats.rojas], ['MVPs', (votes[me.id] || 0)]
-  ].map(([label, value]) => `<div class="stat-item"><small>${label}</small><strong>${value}</strong></div>`).join('');
+  renderTeamStatsBlock();
+  maybeLoadTeamAttendanceTotals();
 
   $('nextMatchText').textContent = nextMatch ? `vs ${nextMatch.rival}` : 'Sin partido próximo';
   if ($('nextMatchMeta')) {
@@ -1886,6 +2032,13 @@ function bindEvents() {
   document.addEventListener('click', async (e) => {
     const btn = e.target.closest('button');
     if (!btn) return;
+
+    if (btn.dataset.action === 'team-stats-tab') {
+      state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
+      state.teamStats.tab = btn.dataset.tab || 'goals';
+      renderTeamStatsBlock();
+      return;
+    }
 
     if (btn.dataset.action === 'lineup-slot') {
       state.lineupEditor.selectedSlot = btn.dataset.slot;
