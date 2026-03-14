@@ -10,7 +10,7 @@ const state = {
   profileStatus: 'loading',
   profileFetchErrorMessage: '',
   pendingMatches: [],
-  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, ui: { q: '', onlyEdited: false } },
+  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, draftsByMatch: {}, ui: { q: '', onlyEdited: false } },
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -90,8 +90,8 @@ function mapPlayerRow(row) {
     stats: {
       goles: Number(row.goles ?? row.goals ?? stats.goles ?? stats.goals ?? 0),
       asistencias: Number(row.asistencias ?? row.assists ?? stats.asistencias ?? stats.assists ?? 0),
-      amarillas: Number(row.amarillas ?? row.yellow_cards ?? stats.amarillas ?? stats.yellow_cards ?? 0),
-      rojas: Number(row.rojas ?? row.red_cards ?? stats.rojas ?? stats.red_cards ?? 0),
+      amarillas: Number(row.amarillas ?? row.yellow_cards ?? row.yc ?? stats.amarillas ?? stats.yellow_cards ?? stats.yc ?? 0),
+      rojas: Number(row.rojas ?? row.red_cards ?? row.rc ?? stats.rojas ?? stats.red_cards ?? stats.rc ?? 0),
       mvps: Number(row.mvps ?? stats.mvps ?? 0)
     }
   };
@@ -1254,14 +1254,20 @@ async function generateInstagramPoster(matchId) {
 
   let attendanceRows = [];
   let lineupRows = [];
+  let profileRows = [];
   try {
     if (supabaseClient && isUuid(matchId)) {
       const [attendanceRes, lineupsRes] = await Promise.all([
-        supabaseClient.from('attendance').select('status').eq('match_id', matchId),
+        supabaseClient.from('attendance').select('user_id,status').eq('match_id', matchId),
         supabaseClient.from('lineups').select('player_id,position_slot').eq('match_id', matchId)
       ]);
       attendanceRows = attendanceRes?.data || [];
       lineupRows = lineupsRes?.data || [];
+      const userIds = [...new Set((attendanceRows || []).map((row) => row?.user_id).filter(Boolean))];
+      if (userIds.length) {
+        const profilesRes = await supabaseClient.from('profiles').select('id,player_id').in('id', userIds);
+        profileRows = profilesRes?.data || [];
+      }
     }
   } catch (error) {
     console.warn('[poster] fallback local data', error);
@@ -1271,9 +1277,42 @@ async function generateInstagramPoster(matchId) {
     lineupRows = Object.entries(state.lineupsByMatch[matchId]).map(([position_slot, player_id]) => ({ position_slot, player_id }));
   }
 
-  const totals = { yes: 0, maybe: 0, no: 0 };
-  (attendanceRows || []).forEach((r) => { const k = normalizeAttendanceStatus(r.status); if (totals[k] !== undefined) totals[k] += 1; });
   const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
+  const profileToPlayer = Object.fromEntries((profileRows || []).map((row) => [String(row.id), String(row.player_id)]));
+  const confirmedPlayerIds = (attendanceRows || [])
+    .filter((row) => normalizeAttendanceStatus(row?.status) === 'yes')
+    .map((row) => profileToPlayer[String(row.user_id)])
+    .filter(Boolean);
+
+  const lineupPlayerIds = (lineupRows || [])
+    .filter((row) => row?.player_id)
+    .map((row) => String(row.player_id));
+
+  const shouldFallbackToLineup = confirmedPlayerIds.length === 0 || (attendanceRows || []).length < 5;
+  const convocadosIds = [...new Set(shouldFallbackToLineup ? [...confirmedPlayerIds, ...lineupPlayerIds] : confirmedPlayerIds)];
+
+  const sortableText = (value) => String(value || '').toLocaleLowerCase('es');
+  const shortPlayerName = (name) => {
+    const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return 'Jugador';
+    if (parts.length === 1) return parts[0].slice(0, 16);
+    return `${parts[0]} ${parts[parts.length - 1]}`.slice(0, 18);
+  };
+
+  const convocados = convocadosIds
+    .map((id) => playersById[String(id)])
+    .filter(Boolean)
+    .sort((a, b) => {
+      const dorsalA = Number(a?.dorsal);
+      const dorsalB = Number(b?.dorsal);
+      const hasDorsalA = Number.isFinite(dorsalA) && dorsalA > 0;
+      const hasDorsalB = Number.isFinite(dorsalB) && dorsalB > 0;
+      if (hasDorsalA && hasDorsalB) return dorsalA - dorsalB;
+      if (hasDorsalA && !hasDorsalB) return -1;
+      if (!hasDorsalA && hasDorsalB) return 1;
+      return sortableText(a?.name).localeCompare(sortableText(b?.name), 'es');
+    });
+
   const canvas = document.createElement('canvas');
   canvas.width = 1080; canvas.height = 1350;
   const ctx = canvas.getContext('2d');
@@ -1282,7 +1321,7 @@ async function generateInstagramPoster(matchId) {
   const formattedDate = dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: '2-digit', month: 'long' });
   const formattedTime = dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   const opponent = match.rival || 'Rival por confirmar';
-  const venue = match.venue || 'Campo por confirmar';
+  const venue = match.venue || 'Velòdrom F7';
 
   let bgImg = null;
   let crestImg = null;
@@ -1300,107 +1339,169 @@ async function generateInstagramPoster(matchId) {
     console.warn('[poster] no se pudo cargar escudo.png', error);
   }
 
-  ctx.fillStyle = '#0d2138';
+  ctx.fillStyle = '#f6f9fc';
   ctx.fillRect(0, 0, 1080, 1350);
-  if (bgImg) ctx.drawImage(bgImg, 0, 0, 1080, 1350);
-  ctx.fillStyle = 'rgba(255,255,255,0.74)';
-  ctx.fillRect(0, 0, 1080, 1350);
-
-  if (crestImg) {
+  if (bgImg) {
     ctx.save();
-    ctx.globalAlpha = 0.06;
-    ctx.drawImage(crestImg, 220, 260, 640, 640);
+    ctx.globalAlpha = 0.08;
+    ctx.drawImage(bgImg, 0, 0, 1080, 1350);
     ctx.restore();
   }
 
-  drawRoundedRect(ctx, 56, 50, 968, 220, 42);
-  ctx.fillStyle = 'rgba(255,255,255,0.78)';
+  if (crestImg) {
+    ctx.save();
+    ctx.globalAlpha = 0.04;
+    ctx.drawImage(crestImg, 690, 750, 320, 320);
+    ctx.restore();
+  }
+
+  drawRoundedRect(ctx, 56, 48, 968, 560, 36);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
+  ctx.save();
+  ctx.shadowColor = 'rgba(13, 33, 56, 0.08)';
+  ctx.shadowBlur = 30;
+  ctx.strokeStyle = 'rgba(19, 50, 79, 0.08)';
+  ctx.stroke();
+  ctx.restore();
 
   if (crestImg) {
     ctx.save();
-    ctx.shadowColor = 'rgba(19,50,79,0.35)';
-    ctx.shadowBlur = 22;
-    ctx.drawImage(crestImg, 95, 78, 160, 160);
+    ctx.shadowColor = 'rgba(19,50,79,0.15)';
+    ctx.shadowBlur = 16;
+    ctx.drawImage(crestImg, 90, 82, 132, 132);
     ctx.restore();
-    ctx.strokeStyle = '#D4AF37';
-    ctx.lineWidth = 5;
-    ctx.beginPath();
-    ctx.arc(175, 158, 88, 0, Math.PI * 2);
-    ctx.stroke();
   }
 
-  ctx.fillStyle = '#13324f';
-  ctx.font = '700 76px Arial';
-  ctx.fillText('CONVOCATORIA', 292, 148);
-  ctx.font = '600 38px Arial';
-  ctx.fillStyle = '#1e496f';
-  ctx.fillText('EL INTER DE VERDUN', 292, 198);
+  ctx.fillStyle = '#10283f';
+  ctx.font = '700 66px Arial';
+  ctx.fillText('CONVOCATORIA', 250, 145);
+  ctx.font = '600 34px Arial';
+  ctx.fillStyle = '#1e4e74';
+  ctx.fillText('EL INTER DE VERDUN', 250, 188);
   ctx.fillStyle = '#D4AF37';
-  ctx.fillRect(292, 218, 640, 4);
+  ctx.fillRect(250, 214, 700, 3);
 
   ctx.fillStyle = '#0f2c46';
   ctx.textAlign = 'center';
-  ctx.font = '800 92px Arial';
-  ctx.fillText(`VS ${String(opponent).toUpperCase()}`, 540, 370);
-  ctx.font = '600 42px Arial';
+  ctx.font = '800 82px Arial';
+  ctx.fillText(`VS ${String(opponent).toUpperCase()}`, 540, 335);
+  ctx.font = '600 38px Arial';
   ctx.fillStyle = '#1a4265';
-  ctx.fillText(`${formattedDate} · ${formattedTime}h`, 540, 430);
+  ctx.fillText(formattedDate, 540, 395);
+  ctx.font = '700 40px Arial';
+  ctx.fillStyle = '#113756';
+  ctx.fillText(`${formattedTime}h`, 540, 447);
 
-  drawRoundedRect(ctx, 400, 458, 280, 66, 33);
-  ctx.fillStyle = '#87d9ff';
-  ctx.fill();
-  ctx.fillStyle = '#13324f';
-  ctx.font = '700 36px Arial';
-  ctx.fillText(match.home ? 'CASA' : 'FUERA', 540, 504);
-  ctx.fillStyle = '#173f61';
-  ctx.font = '500 32px Arial';
-  ctx.fillText(venue, 540, 560);
-
-  ctx.textAlign = 'start';
   const chips = [
-    { label: `✅ Confirmados ${totals.yes}`, color: '#2a8d49' },
-    { label: `❔ Dudas ${totals.maybe}`, color: '#c68d1f' },
-    { label: `❌ Bajas ${totals.no}`, color: '#b83c3c' }
+    { text: match.home ? 'CASA' : 'FUERA', x: 356, w: 170 },
+    { text: venue, x: 540, w: 380 }
   ];
-  chips.forEach((chip, index) => {
-    const y = 620 + index * 66;
-    drawRoundedRect(ctx, 86, y, 430, 52, 26);
-    ctx.fillStyle = chip.color;
+  chips.forEach((chip) => {
+    drawRoundedRect(ctx, chip.x, 482, chip.w, 56, 24);
+    ctx.fillStyle = '#e1f2ff';
     ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '600 28px Arial';
-    ctx.fillText(chip.label, 112, y + 34);
+    ctx.strokeStyle = 'rgba(30, 79, 118, 0.2)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#15476a';
+    ctx.font = chip.w < 220 ? '700 30px Arial' : '600 26px Arial';
+    ctx.fillText(chip.text, chip.x + chip.w / 2, 518);
   });
 
-  ctx.fillStyle = '#1f7f3b';
-  drawRoundedRect(ctx, 80, 760, 920, 430, 36);
+  drawRoundedRect(ctx, 56, 630, 968, 560, 32);
+  ctx.fillStyle = '#ffffff';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-  ctx.lineWidth = 4;
+  ctx.strokeStyle = 'rgba(19, 50, 79, 0.08)';
   ctx.stroke();
-  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-  ctx.strokeRect(118, 790, 844, 370);
-  ctx.beginPath();
-  ctx.moveTo(540, 790);
-  ctx.lineTo(540, 1160);
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+
+  ctx.textAlign = 'start';
+  drawRoundedRect(ctx, 86, 666, 298, 478, 24);
+  ctx.fillStyle = '#f2f8ff';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(19, 50, 79, 0.12)';
+  ctx.stroke();
+
+  ctx.fillStyle = '#113756';
+  ctx.font = '700 42px Arial';
+  ctx.fillText('Convocados', 112, 722);
+  ctx.fillStyle = '#D4AF37';
+  ctx.fillRect(112, 738, 190, 3);
+
+  const maxConvocados = 15;
+  const visibleConvocados = convocados.slice(0, maxConvocados);
+  if (!visibleConvocados.length) {
+    ctx.fillStyle = '#355b78';
+    ctx.font = '500 27px Arial';
+    ctx.fillText('Sin confirmaciones aún', 112, 790);
+  } else {
+    visibleConvocados.forEach((player, index) => {
+      const y = 792 + index * 23;
+      const dorsal = Number(player?.dorsal);
+      const hasDorsal = Number.isFinite(dorsal) && dorsal > 0;
+      ctx.fillStyle = '#163f60';
+      ctx.font = hasDorsal ? '700 23px Arial' : '500 23px Arial';
+      const label = hasDorsal ? `${dorsal}. ${shortPlayerName(player?.name)}` : shortPlayerName(player?.name);
+      ctx.fillText(label, 112, y);
+    });
+    if (convocados.length > maxConvocados) {
+      ctx.fillStyle = '#5c7890';
+      ctx.font = '500 19px Arial';
+      ctx.fillText(`+${convocados.length - maxConvocados} más`, 112, 1140);
+    }
+  }
+
+  drawRoundedRect(ctx, 408, 666, 592, 478, 24);
+  ctx.fillStyle = '#347a51';
+  ctx.fill();
+  const turfGradient = ctx.createLinearGradient(408, 666, 1000, 1144);
+  turfGradient.addColorStop(0, 'rgba(255,255,255,0.11)');
+  turfGradient.addColorStop(1, 'rgba(255,255,255,0.02)');
+  ctx.fillStyle = turfGradient;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
   ctx.lineWidth = 3;
   ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.strokeRect(438, 694, 532, 420);
   ctx.beginPath();
-  ctx.arc(540, 975, 58, 0, Math.PI * 2);
+  ctx.moveTo(704, 694);
+  ctx.lineTo(704, 1114);
   ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(704, 904, 48, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const drawLineupPlate = (x, y, player, index) => {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.18)';
+    ctx.shadowBlur = 8;
+    drawRoundedRect(ctx, x - 54, y - 26, 108, 52, 24);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.restore();
+    const dorsal = Number(player?.dorsal);
+    const hasDorsal = Number.isFinite(dorsal) && dorsal > 0;
+    ctx.fillStyle = '#123957';
+    ctx.font = '700 20px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText(hasDorsal ? `#${dorsal}` : `#${index + 1}`, x, y - 4);
+    ctx.font = '500 15px Arial';
+    ctx.fillStyle = '#2b5878';
+    ctx.fillText(shortPlayerName(player?.name || ''), x, y + 15);
+  };
 
   if (lineupRows?.length) {
     const slotCoords = {
-      GK: [540, 1130],
-      D1: [330, 1020],
-      D2: [540, 1010],
-      D3: [750, 1020],
-      M1: [300, 910],
-      M2: [540, 900],
-      M3: [780, 910],
-      F1: [540, 800]
+      GK: [704, 1084],
+      D1: [562, 986],
+      D2: [704, 974],
+      D3: [848, 986],
+      M1: [532, 868],
+      M2: [704, 850],
+      M3: [876, 868],
+      F1: [704, 748]
     };
     const normalizedRows = lineupRows
       .filter((row) => row?.position_slot && row?.player_id)
@@ -1408,34 +1509,24 @@ async function generateInstagramPoster(matchId) {
 
     normalizedRows.slice(0, 8).forEach((slot, i) => {
       const p = playersById[String(slot.player_id)];
-      const [x, y] = slotCoords[String(slot.position_slot)] || [540, 960];
-      const shortName = (p?.name || String(slot.position_slot)).split(' ')[0].slice(0, 11);
-      ctx.fillStyle = '#fff';
-      ctx.beginPath();
-      ctx.arc(x, y, 46, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#13324f';
-      ctx.font = '700 24px Arial';
-      ctx.textAlign = 'center';
-      ctx.fillText(`#${p?.dorsal || i + 1}`, x, y - 7);
-      ctx.font = '18px Arial';
-      ctx.fillText(shortName, x, y + 20);
+      const [x, y] = slotCoords[String(slot.position_slot)] || [704, 904];
+      drawLineupPlate(x, y, p, i);
     });
     ctx.textAlign = 'start';
   } else {
-    ctx.fillStyle = '#fff';
-    ctx.font = '700 42px Arial';
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 38px Arial';
     ctx.textAlign = 'center';
-    ctx.fillText('Alineación por confirmar', 540, 980);
+    ctx.fillText('Alineación por confirmar', 704, 924);
     ctx.textAlign = 'start';
   }
 
   ctx.fillStyle = '#D4AF37';
-  ctx.fillRect(80, 1248, 920, 4);
+  ctx.fillRect(80, 1248, 920, 3);
   ctx.fillStyle = '#13324f';
-  ctx.font = '600 32px Arial';
+  ctx.font = '600 28px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText('@interdeverdunbcn  #InterDeVerdun', 540, 1300);
+  ctx.fillText('@interdeverdunbcn   #InterDeVerdun', 540, 1298);
   ctx.textAlign = 'start';
 
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
@@ -1466,6 +1557,17 @@ function ensureDraftForPlayer(playerId) {
   return d[playerId];
 }
 
+function buildPlayerStatsDraftFromCurrentPlayers() {
+  const players = getPlayers();
+  return Object.fromEntries(players.map((p) => [p.id, {
+    goals: Number(p.stats.goles || 0),
+    assists: Number(p.stats.asistencias || 0),
+    yc: Number(p.stats.amarillas || 0),
+    rc: Number(p.stats.rojas || 0),
+    mvps: Number(p.stats.mvps || 0)
+  }]));
+}
+
 function isDraftEdited(d) {
   return (d.goals || 0) !== 0 || (d.assists || 0) !== 0 || (d.yc || 0) !== 0 || (d.rc || 0) !== 0 || (d.mvps || 0) !== 0;
 }
@@ -1481,9 +1583,7 @@ function renderPostMatchPlayersList() {
   }
 
   if (!state.postMatchEditor.playerStatsDraft || !Object.keys(state.postMatchEditor.playerStatsDraft).length) {
-    state.postMatchEditor.playerStatsDraft = Object.fromEntries(
-      players.map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
-    );
+    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
   }
 
   if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
@@ -1552,7 +1652,12 @@ function openPostMatchModal(matchId) {
   }
   state.postMatchEditor.open = true;
   state.postMatchEditor.matchId = matchId;
-  state.postMatchEditor.playerStatsDraft = {};
+  const cachedDraft = state.postMatchEditor.draftsByMatch?.[matchId];
+  state.postMatchEditor.playerStatsDraft = cachedDraft
+    ? JSON.parse(JSON.stringify(cachedDraft))
+    : buildPlayerStatsDraftFromCurrentPlayers();
+  if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+  state.postMatchEditor.draftsByMatch[matchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
   state.postMatchEditor.ui = { q: '', onlyEdited: false };
 
   let homeVal = '';
@@ -1597,13 +1702,13 @@ async function savePostMatchModal() {
   }
 
   const payload = { [MATCH_RESULT_COLS.home]: result_home, [MATCH_RESULT_COLS.away]: result_away };
-  const { data: updatedMatch, error: matchError } = await supabaseClient
+  console.log('[post-match] saving match result', { matchId, payload });
+  const { error: matchError } = await supabaseClient
     .from('matches')
     .update(payload)
-    .eq('id', matchId)
-    .select('*')
-    .single();
+    .eq('id', matchId);
   if (matchError) {
+    console.error('[post-match] match update error', { matchId, payload, error: matchError });
     showToast(matchError.message || 'Error guardando resultado', 'error');
     return;
   }
@@ -1611,7 +1716,7 @@ async function savePostMatchModal() {
   clearMatchResultOverride(matchId);
   const idx = state.data.matches.findIndex((m) => m.id === matchId);
   if (idx >= 0) {
-    state.data.matches[idx] = mapMatchRow(updatedMatch || { ...state.data.matches[idx], ...payload });
+    state.data.matches[idx] = mapMatchRow({ ...state.data.matches[idx], ...payload });
   }
   await refreshPostMatchState();
   renderHome();
@@ -1619,13 +1724,16 @@ async function savePostMatchModal() {
   const updates = Object.entries(state.postMatchEditor.playerStatsDraft).map(([playerId, d]) => (
     supabaseClient.from('players').update({ goals: Number(d.goals), assists: Number(d.assists), yc: Number(d.yc), rc: Number(d.rc), mvps: Number(d.mvps) }).eq('id', playerId)
   ));
+  console.log('[post-match] saving player stats', { matchId, players: updates.length });
   const results = await Promise.all(updates);
   const failed = results.find((r) => r.error);
   if (failed?.error) {
+    console.error('[post-match] player stats update error', { matchId, error: failed.error });
     showToast(failed.error.message || 'Error guardando stats', 'error');
     return;
   }
 
+  if (state.postMatchEditor.draftsByMatch) delete state.postMatchEditor.draftsByMatch[matchId];
   $('postMatchModal').close();
   await hydrateSessionData();
   renderAll();
@@ -1995,8 +2103,12 @@ function bindEvents() {
   });
 
   $('postResetDraftBtn')?.addEventListener('click', () => {
-    const players = getPlayers();
-    state.postMatchEditor.playerStatsDraft = Object.fromEntries(players.map((p) => [p.id, { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 }]));
+    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
+    const activeMatchId = state.postMatchEditor.matchId;
+    if (activeMatchId) {
+      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+    }
     renderPostMatchPlayersList();
   });
 
@@ -2015,6 +2127,11 @@ function bindEvents() {
     const draft = ensureDraftForPlayer(pid);
     draft[key] = clampStatValue(parseInt(input.value, 10));
     input.value = String(draft[key]);
+    const activeMatchId = state.postMatchEditor.matchId;
+    if (activeMatchId) {
+      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+    }
     syncPostEditedBadge(card, draft);
   });
 
@@ -2035,6 +2152,11 @@ function bindEvents() {
       draft[stat] = clampStatValue(Number(draft[stat] || 0) + delta);
       const input = stepper.querySelector(`input[data-field="${stat}"]`);
       if (input) input.value = String(draft[stat]);
+      const activeMatchId = state.postMatchEditor.matchId;
+      if (activeMatchId) {
+        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+      }
       syncPostEditedBadge(card, draft);
       return;
     }
@@ -2045,6 +2167,11 @@ function bindEvents() {
       if (!['yc', 'rc'].includes(key)) return;
       draft[key] = draft[key] ? 0 : 1;
       toggleBtn.classList.toggle('is-on', Boolean(draft[key]));
+      const activeMatchId = state.postMatchEditor.matchId;
+      if (activeMatchId) {
+        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+      }
       syncPostEditedBadge(card, draft);
     }
   });
