@@ -10,7 +10,7 @@ const state = {
   profileStatus: 'loading',
   profileFetchErrorMessage: '',
   pendingMatches: [],
-  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, ui: { q: '', onlyEdited: false } },
+  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, draftsByMatch: {}, ui: { q: '', onlyEdited: false } },
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -95,8 +95,8 @@ function mapPlayerRow(row) {
     stats: {
       goles: Number(row.goles ?? row.goals ?? stats.goles ?? stats.goals ?? 0),
       asistencias: Number(row.asistencias ?? row.assists ?? stats.asistencias ?? stats.assists ?? 0),
-      amarillas: Number(row.amarillas ?? row.yellow_cards ?? stats.amarillas ?? stats.yellow_cards ?? 0),
-      rojas: Number(row.rojas ?? row.red_cards ?? stats.rojas ?? stats.red_cards ?? 0),
+      amarillas: Number(row.amarillas ?? row.yellow_cards ?? row.yc ?? stats.amarillas ?? stats.yellow_cards ?? stats.yc ?? 0),
+      rojas: Number(row.rojas ?? row.red_cards ?? row.rc ?? stats.rojas ?? stats.red_cards ?? stats.rc ?? 0),
       mvps: Number(row.mvps ?? stats.mvps ?? 0)
     }
   };
@@ -1703,6 +1703,17 @@ function ensureDraftForPlayer(playerId) {
   return d[playerId];
 }
 
+function buildPlayerStatsDraftFromCurrentPlayers() {
+  const players = getPlayers();
+  return Object.fromEntries(players.map((p) => [p.id, {
+    goals: Number(p.stats.goles || 0),
+    assists: Number(p.stats.asistencias || 0),
+    yc: Number(p.stats.amarillas || 0),
+    rc: Number(p.stats.rojas || 0),
+    mvps: Number(p.stats.mvps || 0)
+  }]));
+}
+
 function isDraftEdited(d) {
   return (d.goals || 0) !== 0 || (d.assists || 0) !== 0 || (d.yc || 0) !== 0 || (d.rc || 0) !== 0 || (d.mvps || 0) !== 0;
 }
@@ -1718,9 +1729,7 @@ function renderPostMatchPlayersList() {
   }
 
   if (!state.postMatchEditor.playerStatsDraft || !Object.keys(state.postMatchEditor.playerStatsDraft).length) {
-    state.postMatchEditor.playerStatsDraft = Object.fromEntries(
-      players.map((p) => [p.id, { goals: p.stats.goles, assists: p.stats.asistencias, yc: p.stats.amarillas, rc: p.stats.rojas, mvps: p.stats.mvps }])
-    );
+    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
   }
 
   if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
@@ -1789,7 +1798,12 @@ function openPostMatchModal(matchId) {
   }
   state.postMatchEditor.open = true;
   state.postMatchEditor.matchId = matchId;
-  state.postMatchEditor.playerStatsDraft = {};
+  const cachedDraft = state.postMatchEditor.draftsByMatch?.[matchId];
+  state.postMatchEditor.playerStatsDraft = cachedDraft
+    ? JSON.parse(JSON.stringify(cachedDraft))
+    : buildPlayerStatsDraftFromCurrentPlayers();
+  if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+  state.postMatchEditor.draftsByMatch[matchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
   state.postMatchEditor.ui = { q: '', onlyEdited: false };
 
   let homeVal = '';
@@ -1834,13 +1848,13 @@ async function savePostMatchModal() {
   }
 
   const payload = { [MATCH_RESULT_COLS.home]: result_home, [MATCH_RESULT_COLS.away]: result_away };
-  const { data: updatedMatch, error: matchError } = await supabaseClient
+  console.log('[post-match] saving match result', { matchId, payload });
+  const { error: matchError } = await supabaseClient
     .from('matches')
     .update(payload)
-    .eq('id', matchId)
-    .select('*')
-    .single();
+    .eq('id', matchId);
   if (matchError) {
+    console.error('[post-match] match update error', { matchId, payload, error: matchError });
     showToast(matchError.message || 'Error guardando resultado', 'error');
     return;
   }
@@ -1848,7 +1862,7 @@ async function savePostMatchModal() {
   clearMatchResultOverride(matchId);
   const idx = state.data.matches.findIndex((m) => m.id === matchId);
   if (idx >= 0) {
-    state.data.matches[idx] = mapMatchRow(updatedMatch || { ...state.data.matches[idx], ...payload });
+    state.data.matches[idx] = mapMatchRow({ ...state.data.matches[idx], ...payload });
   }
   await refreshPostMatchState();
   renderHome();
@@ -1856,13 +1870,16 @@ async function savePostMatchModal() {
   const updates = Object.entries(state.postMatchEditor.playerStatsDraft).map(([playerId, d]) => (
     supabaseClient.from('players').update({ goals: Number(d.goals), assists: Number(d.assists), yc: Number(d.yc), rc: Number(d.rc), mvps: Number(d.mvps) }).eq('id', playerId)
   ));
+  console.log('[post-match] saving player stats', { matchId, players: updates.length });
   const results = await Promise.all(updates);
   const failed = results.find((r) => r.error);
   if (failed?.error) {
+    console.error('[post-match] player stats update error', { matchId, error: failed.error });
     showToast(failed.error.message || 'Error guardando stats', 'error');
     return;
   }
 
+  if (state.postMatchEditor.draftsByMatch) delete state.postMatchEditor.draftsByMatch[matchId];
   $('postMatchModal').close();
   await hydrateSessionData();
   renderAll();
@@ -2239,8 +2256,12 @@ function bindEvents() {
   });
 
   $('postResetDraftBtn')?.addEventListener('click', () => {
-    const players = getPlayers();
-    state.postMatchEditor.playerStatsDraft = Object.fromEntries(players.map((p) => [p.id, { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 }]));
+    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
+    const activeMatchId = state.postMatchEditor.matchId;
+    if (activeMatchId) {
+      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+    }
     renderPostMatchPlayersList();
   });
 
@@ -2259,6 +2280,11 @@ function bindEvents() {
     const draft = ensureDraftForPlayer(pid);
     draft[key] = clampStatValue(parseInt(input.value, 10));
     input.value = String(draft[key]);
+    const activeMatchId = state.postMatchEditor.matchId;
+    if (activeMatchId) {
+      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+    }
     syncPostEditedBadge(card, draft);
   });
 
@@ -2279,6 +2305,11 @@ function bindEvents() {
       draft[stat] = clampStatValue(Number(draft[stat] || 0) + delta);
       const input = stepper.querySelector(`input[data-field="${stat}"]`);
       if (input) input.value = String(draft[stat]);
+      const activeMatchId = state.postMatchEditor.matchId;
+      if (activeMatchId) {
+        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+      }
       syncPostEditedBadge(card, draft);
       return;
     }
@@ -2289,6 +2320,11 @@ function bindEvents() {
       if (!['yc', 'rc'].includes(key)) return;
       draft[key] = draft[key] ? 0 : 1;
       toggleBtn.classList.toggle('is-on', Boolean(draft[key]));
+      const activeMatchId = state.postMatchEditor.matchId;
+      if (activeMatchId) {
+        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
+        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
+      }
       syncPostEditedBadge(card, draft);
     }
   });
