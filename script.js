@@ -423,6 +423,40 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function extractInterScorers(match) {
+  const candidates = [
+    match?.inter_scorers,
+    match?.interScorers,
+    match?.scorers,
+    match?.goals,
+    match?.goleadores
+  ];
+  const source = candidates.find((item) => item != null && item !== '');
+  if (!source) return [];
+  if (Array.isArray(source)) return source.map((item) => String(item).trim()).filter(Boolean);
+  return String(source)
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function getTeamLogo(teamName) {
+  const normalized = String(teamName || 'Rival').trim();
+  const lower = normalized.toLowerCase();
+  const isInter = lower.includes('inter') || lower === 'inter de verdun';
+  if (isInter) return 'escudo.png';
+  return `https://ui-avatars.com/api/?name=${encodeURIComponent(normalized)}&background=random&color=fff`;
+}
+
 function formatMatchLabel(match) {
   if (!match) return '-';
   const date = new Date(match.date || Date.now()).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -529,18 +563,40 @@ function renderTeamStatsBlock() {
   const votes = getVotesTotals();
   const model = computeTeamStatsModel(players, votes, state.teamStats.attendanceByPlayerId);
   const tabs = [
-    { id: 'goals', label: 'Goles' },
-    { id: 'assists', label: 'Asist.' },
-    { id: 'attendance', label: 'Asistencia' },
-    { id: 'mvp', label: 'MVP' }
+    { id: 'goals', label: '⚽ Goles' },
+    { id: 'assists', label: '🎯 Asist' },
+    { id: 'attendance', label: '👥 Convocatorias' },
+    { id: 'mvp', label: '⭐ MVP' }
   ];
   const ranking = model.rankings[activeTab] || [];
+  const maxValue = Math.max(1, ...ranking.map((item) => Number(item.value) || 0));
+  const allMatches = getMatches();
+  const finishedMatches = allMatches.filter((match) => {
+    const [homeGoals, awayGoals] = getMatchResultTuple(match);
+    return homeGoals != null && awayGoals != null;
+  });
+  const teamSummary = finishedMatches.reduce((acc, match) => {
+    const [homeGoals, awayGoals] = getMatchResultTuple(match);
+    const interGoals = match.home ? homeGoals : awayGoals;
+    const rivalGoals = match.home ? awayGoals : homeGoals;
+    return {
+      played: acc.played + 1,
+      won: acc.won + (interGoals > rivalGoals ? 1 : 0),
+      lost: acc.lost + (interGoals < rivalGoals ? 1 : 0),
+      gf: acc.gf + Number(interGoals || 0),
+      gc: acc.gc + Number(rivalGoals || 0)
+    };
+  }, { played: 0, won: 0, lost: 0, gf: 0, gc: 0 });
 
   const rankItems = ranking.length
     ? ranking.map((item, index) => `
       <li class="team-stats__rank-row">
         <span class="team-stats__rank-pos">${index + 1}</span>
-        <span class="team-stats__rank-name">${item.name}</span>
+        <span class="team-stats__rank-avatar">${escapeHtml(String(item.name || 'J').trim().charAt(0).toUpperCase() || 'J')}</span>
+        <div class="team-stats__rank-main">
+          <span class="team-stats__rank-name">${escapeHtml(item.name)}</span>
+          <span class="team-stats__rank-bar"><span style="width:${Math.max(8, Math.round(((Number(item.value) || 0) / maxValue) * 100))}%"></span></span>
+        </div>
         <strong class="team-stats__rank-value">${formatTeamStatValue(item.value, activeTab)}</strong>
       </li>
     `).join('')
@@ -552,14 +608,24 @@ function renderTeamStatsBlock() {
         <h3 class="team-stats__title">Estadísticas del equipo</h3>
       </header>
       <div class="team-stats__kpis">
-        <article class="team-stats__kpi"><small>Máximo goleador</small><strong>${model.kpis.topScorer.name}</strong><span>${model.kpis.topScorer.value}</span></article>
-        <article class="team-stats__kpi"><small>Máximo asistente</small><strong>${model.kpis.topAssistant.name}</strong><span>${model.kpis.topAssistant.value}</span></article>
-        <article class="team-stats__kpi"><small>Mejor asistencia</small><strong>${model.kpis.topAttendance.name}</strong><span>${model.kpis.topAttendance.value}</span></article>
+        <article class="team-stats__kpi"><small>⚽ Máximo goleador</small><strong>${model.kpis.topScorer.value}</strong><span>${model.kpis.topScorer.name}</span></article>
+        <article class="team-stats__kpi"><small>👥 Más convocado</small><strong>${model.kpis.topAttendance.value}</strong><span>${model.kpis.topAttendance.name}</span></article>
+        <article class="team-stats__kpi"><small>📅 Partidos jugados</small><strong>${teamSummary.played}</strong><span>Inter de Verdun</span></article>
       </div>
       <div class="team-stats__tabs" role="tablist" aria-label="Ranking por categoría">
         ${tabs.map((tab) => `<button type="button" class="team-stats__tab ${activeTab === tab.id ? 'is-active' : ''}" role="tab" aria-selected="${String(activeTab === tab.id)}" data-action="team-stats-tab" data-tab="${tab.id}">${tab.label}</button>`).join('')}
       </div>
       <ol class="team-stats__rank">${rankItems}</ol>
+      <section class="team-stats__summary" aria-label="Resumen del equipo">
+        <h4 class="team-stats__summary-title">Resumen del equipo</h4>
+        <div class="team-stats__summary-grid">
+          <article><small>PJ</small><strong>${teamSummary.played}</strong></article>
+          <article><small>G</small><strong>${teamSummary.won}</strong></article>
+          <article><small>P</small><strong>${teamSummary.lost}</strong></article>
+          <article><small>GF</small><strong>${teamSummary.gf}</strong></article>
+          <article><small>GC</small><strong>${teamSummary.gc}</strong></article>
+        </div>
+      </section>
     </section>
   `;
 }
@@ -1985,8 +2051,39 @@ function openAdminLineupForMatch(matchId) {
 function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
-  $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
-  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${formatMatchResult(m)} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
+  const [homeGoals, awayGoals] = getMatchResultTuple(m);
+  const hasResult = homeGoals != null && awayGoals != null;
+  const status = hasResult ? 'FINALIZADO' : 'PENDIENTE';
+  const jornada = m.jornada || m.matchday || m.round || '';
+  const localTeam = m.home ? 'Inter F7' : (m.rival || 'Rival');
+  const awayTeam = m.home ? (m.rival || 'Rival') : 'Inter F7';
+  const scorers = extractInterScorers(m);
+  const textualResult = m.result_text || m.resultText || m.resultado_texto || '';
+  const resultLabel = hasResult ? `${homeGoals} - ${awayGoals}` : '-';
+
+  $('modalHeader').innerHTML = `
+    <p class="match-modal-meta-top">${jornada ? `<span class="badge">${escapeHtml(jornada)}</span>` : ''}<span>${escapeHtml(formatDate(m.date))}</span></p>
+    <p class="match-modal-status ${hasResult ? 'is-final' : 'is-pending'}">${status}</p>
+  `;
+
+  $('modalHero').innerHTML = `
+    <div class="team-side team-side--local">
+      <p class="team-name">${escapeHtml(localTeam)}</p>
+      <img class="team-shield team-logo" src="${getTeamLogo(localTeam)}" alt="Escudo ${escapeHtml(localTeam)}" />
+    </div>
+    <p class="match-score" aria-label="Marcador">${resultLabel}</p>
+    <div class="team-side team-side--away">
+      <img class="team-shield team-logo" src="${getTeamLogo(awayTeam)}" alt="Escudo ${escapeHtml(awayTeam)}" />
+      <p class="team-name">${escapeHtml(awayTeam)}</p>
+    </div>
+  `;
+
+  $('modalSummary').innerHTML = `
+    <p><strong>Localía:</strong> ${m.home ? 'Casa' : 'Fuera'} · <strong>Campo:</strong> ${escapeHtml(m.venue || 'Velòdrom F7')}</p>
+    ${textualResult ? `<p><strong>Resumen:</strong> ${escapeHtml(textualResult)}</p>` : ''}
+    ${scorers.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${scorers.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
+  `;
+
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
