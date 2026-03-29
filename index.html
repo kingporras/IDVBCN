@@ -46,6 +46,7 @@
 
         <article class="card home-cta-card">
           <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
+          <button id="homeRefreshBtn" class="btn btn-secondary home-cta" type="button" aria-label="Actualizar datos de Home">Actualizar datos</button>
         </article>
 
         <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
@@ -177,7 +178,7 @@
   <script src="script.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js');
+      navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
     }
   </script>
 </body>
