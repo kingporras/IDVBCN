@@ -71,7 +71,8 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
 }
 .match-modal-status.is-final { color: #0f6d2f; }
 .match-modal-status.is-pending { color: #9a6b00; }
-.match-modal-hero {
+.match-modal-hero,
+.match-hero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 10px;
@@ -83,6 +84,8 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
   padding: 14px 10px;
 }
 .team-side { display: grid; gap: 8px; justify-items: center; }
+.team-side--local { justify-items: start; text-align: left; }
+.team-side--away { justify-items: end; text-align: right; }
 .team-name { margin: 0; font-weight: 800; font-size: 0.95rem; color: #113555; }
 .team-shield { width: clamp(64px, 16vw, 96px); height: clamp(64px, 16vw, 96px); object-fit: contain; }
 .team-logo { border-radius: 50%; background: #fff; padding: 2px; }
