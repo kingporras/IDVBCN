@@ -2137,6 +2137,12 @@ function bindEvents() {
     const btn = e.target.closest('button');
     if (!btn) return;
 
+    if (btn.id === 'homeRefreshBtn') {
+      console.log('[refresh] botón pulsado');
+      await refreshHomeDataManually();
+      return;
+    }
+
     if (btn.dataset.action === 'team-stats-tab') {
       state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
       state.teamStats.tab = btn.dataset.tab || 'goals';
