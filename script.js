@@ -41,6 +41,9 @@ const state = {
 };
 
 const MATCH_RESULT_COLS = { home: 'result_home', away: 'result_away' };
+const AUTO_REFRESH_COOLDOWN_MS = 45 * 1000;
+let lastAutoRefreshAt = 0;
+let refreshInFlight = false;
 
 function getMatchResultTuple(match) {
   if (!match) return [null, null];
@@ -284,15 +287,24 @@ function clearMatchResultOverride(matchId) {
   }
 }
 
+function clearPlayerStatsOverride(playerId) {
+  const o = readJSON('playerStatsOverride', {});
+  if (o && Object.prototype.hasOwnProperty.call(o, playerId)) {
+    delete o[playerId];
+    writeJSON('playerStatsOverride', o);
+  }
+}
+
 function getPlayers() {
   const override = readJSON('playerStatsOverride', {});
-  return state.data.players.map((p) => ({ ...p, stats: { ...p.stats, ...(override[p.id] || {}) } }));
+  return state.data.players.map((p) => ({ ...p, stats: { ...p.stats, ...(!isUuid(p.id) ? (override[p.id] || {}) : {}) } }));
 }
 
 function getMatches() {
   const resultOverride = readJSON('matchResultsOverride', {});
   return [...state.data.matches]
     .map((m) => {
+      if (isUuid(m.id)) return m;
       const rawOverride = resultOverride[m.id];
       const parsedOverride = parseResult(rawOverride);
       if (!parsedOverride) return m;
@@ -1346,6 +1358,79 @@ function renderAll() {
   route();
 }
 
+function isAutoRefreshBlocked() {
+  const currentView = window.location.hash.replace('#', '') || 'home';
+  if (currentView === 'admin') return true;
+  if (document.querySelector('dialog[open]')) return true;
+
+  const active = document.activeElement;
+  const typingTag = active?.tagName;
+  if (active && (typingTag === 'INPUT' || typingTag === 'TEXTAREA' || typingTag === 'SELECT' || active.isContentEditable)) {
+    return true;
+  }
+
+  return false;
+}
+
+async function refreshSessionData(options = {}) {
+  const {
+    source = 'manual',
+    showSuccessToast = true,
+    useRefreshButton = false
+  } = options;
+
+  if (refreshInFlight) return false;
+  if (!state.session?.user) return false;
+
+  const button = useRefreshButton ? $('homeRefreshBtn') : null;
+  const previousLabel = button?.textContent;
+
+  refreshInFlight = true;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Actualizando...';
+  }
+
+  try {
+    state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
+    state.teamStats.attendanceStatus = 'idle';
+    state.teamStats.attendanceByPlayerId = null;
+
+    await hydrateSessionData();
+    renderAll();
+    if (showSuccessToast) showToast('Datos actualizados', 'success');
+    return true;
+  } catch (error) {
+    console.error(`[home-refresh:${source}] error`, error);
+    showToast(error.message || 'No se pudieron actualizar los datos', 'error');
+    return false;
+  } finally {
+    refreshInFlight = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = previousLabel || 'Actualizar datos';
+    }
+  }
+}
+
+function scheduleAutoRefreshOnForeground(source = 'foreground') {
+  if (document.hidden) return;
+  if (!state.session?.user) return;
+  if (isAutoRefreshBlocked()) return;
+
+  const now = Date.now();
+  if ((now - lastAutoRefreshAt) < AUTO_REFRESH_COOLDOWN_MS) return;
+  lastAutoRefreshAt = now;
+
+  refreshSessionData({ source, showSuccessToast: false, useRefreshButton: false });
+}
+
+async function refreshHomeDataManually() {
+  const button = $('homeRefreshBtn');
+  if (!button || button.disabled) return;
+  await refreshSessionData({ source: 'manual', showSuccessToast: true, useRefreshButton: true });
+}
+
 function showToast(text, type = "info") {
   const t = $('toast');
   t.textContent = text;
@@ -2039,6 +2124,8 @@ function bindEvents() {
     route();
   });
 
+  $('homeRefreshBtn')?.addEventListener('click', refreshHomeDataManually);
+
   $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
     console.log('[attendance] match change', state.selectedMatchId, typeof state.selectedMatchId);
@@ -2214,14 +2301,34 @@ function bindEvents() {
     if (e.target?.id === 'playerStatsForm') {
       e.preventDefault();
       const id = $('adminPlayerSelector')?.value;
-      const o = readJSON('playerStatsOverride', {});
-      o[id] = {
+      const nextStats = {
         goles: Number($('sGoles')?.value || 0),
         asistencias: Number($('sAsist')?.value || 0),
         amarillas: Number($('sAma')?.value || 0),
         rojas: Number($('sRojas')?.value || 0),
         mvps: Number($('sMvps')?.value || 0)
       };
+
+      if (isUuid(id) && supabaseClient && isAdmin()) {
+        supabaseClient
+          .from('players')
+          .update({ goals: nextStats.goles, assists: nextStats.asistencias, yc: nextStats.amarillas, rc: nextStats.rojas, mvps: nextStats.mvps })
+          .eq('id', id)
+          .then(async ({ error }) => {
+            if (error) {
+              showToast(error.message || 'Error guardando stats', 'error');
+              return;
+            }
+            clearPlayerStatsOverride(id);
+            await hydrateSessionData();
+            renderAll();
+            showToast('Stats actualizadas', 'success');
+          });
+        return;
+      }
+
+      const o = readJSON('playerStatsOverride', {});
+      o[id] = nextStats;
       writeJSON('playerStatsOverride', o);
       renderAll();
       showToast('Stats actualizadas');
@@ -2330,6 +2437,10 @@ function bindEvents() {
   });
 
   window.addEventListener('hashchange', route);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') scheduleAutoRefreshOnForeground('visibilitychange');
+  });
+  window.addEventListener('focus', () => scheduleAutoRefreshOnForeground('focus'));
 }
 
 async function init() {
