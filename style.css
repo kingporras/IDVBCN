@@ -51,6 +51,64 @@ input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-
 .hidden { display: none !important; }
 .banner { color: #7a5b00; background: #fff8df; padding: 8px; border-radius: 10px; border: 1px solid #edd37c; }
 dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
+#matchModal { width: min(620px, 94vw); }
+#matchModal > .card { padding: 18px; }
+.match-modal-header { margin-bottom: 10px; }
+.match-modal-meta-top {
+  margin: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+.match-modal-status {
+  margin: 6px 0 0;
+  font-weight: 900;
+  font-size: 0.82rem;
+  letter-spacing: .08em;
+}
+.match-modal-status.is-final { color: #0f6d2f; }
+.match-modal-status.is-pending { color: #9a6b00; }
+.match-modal-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  text-align: center;
+  border: 1px solid #d2e6ff;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f4f9ff 0%, #fff 100%);
+  padding: 14px 10px;
+}
+.team-side { display: grid; gap: 8px; justify-items: center; }
+.team-name { margin: 0; font-weight: 800; font-size: 0.95rem; color: #113555; }
+.team-shield { width: clamp(64px, 16vw, 96px); height: clamp(64px, 16vw, 96px); object-fit: contain; }
+.match-score {
+  margin: 0;
+  font-size: clamp(2rem, 11vw, 3.4rem);
+  font-weight: 900;
+  line-height: 1;
+  color: #0b3b64;
+  letter-spacing: 0.04em;
+}
+.match-modal-summary {
+  margin-top: 12px;
+  background: #f9fcff;
+  border: 1px solid #dcecff;
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.match-modal-summary p { margin: 0 0 6px; font-size: 0.92rem; }
+.match-modal-summary p:last-child { margin-bottom: 0; }
+.inter-scorers h4 { margin: 8px 0 4px; font-size: 0.9rem; }
+.inter-scorers ul { margin: 0; padding-left: 18px; }
+.inter-scorers li { margin: 2px 0; color: #13324f; }
+.lineup-card-modal { margin-top: 14px; }
+.lineup-card-modal h4 { margin-bottom: 6px; font-size: 0.95rem; }
+.lineup-card-modal .btn { min-height: 40px; font-size: 0.9rem; }
+#modalAdminEdit .btn, #closeModalBtn { margin-top: 8px; min-height: 40px; }
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 82px; background: #06284d; color: white; padding: 8px 14px; border-radius: 999px; opacity: 0; transition: 0.25s; }
 .toast.show { opacity: 1; }
 .att-actions { display: flex; gap: 6px; margin-top: 6px; }
@@ -74,6 +132,10 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
 .link-actions { display: grid; gap: 8px; }
 .quick-tabs { display: flex; gap: 6px; margin-top: 6px; }
 @media (min-width: 700px) { body { padding: 20px 0; } .app-shell { border-radius: 20px; overflow: hidden; } }
+@media (max-width: 420px) {
+  .team-name { font-size: 0.84rem; }
+  .match-modal-hero { gap: 6px; padding: 12px 8px; }
+}
 
 
 .sr-only {
@@ -293,4 +355,3 @@ dialog { border: none; border-radius: 12px; width: min(420px, 92vw); }
 .team-stats__rank-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .team-stats__rank-value { color: #0f4f8d; }
 .team-stats__empty { margin: 0; padding: 10px; color: #5e748b; background: #f7fbff; border: 1px dashed #c8dcef; border-radius: 10px; }
-
