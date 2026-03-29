@@ -179,7 +179,60 @@
   <script src="script.js"></script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
+      let swRefreshTriggered = false;
+      const SW_RELOAD_GUARD_KEY = 'sw-reload-once';
+
+      const triggerSingleReload = () => {
+        if (swRefreshTriggered) return;
+        if (sessionStorage.getItem(SW_RELOAD_GUARD_KEY) === '1') return;
+        swRefreshTriggered = true;
+        sessionStorage.setItem(SW_RELOAD_GUARD_KEY, '1');
+        console.log('[SW] controller changed, reloading');
+        window.location.reload();
+      };
+
+      const requestSkipWaiting = (worker) => {
+        if (!worker) return;
+        console.log('[SW] waiting worker detected');
+        worker.postMessage({ type: 'SKIP_WAITING' });
+      };
+
+      const watchInstallingWorker = (registration, worker) => {
+        if (!worker) return;
+        worker.addEventListener('statechange', () => {
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+            requestSkipWaiting(registration.waiting || worker);
+          }
+        });
+      };
+
+      window.addEventListener('load', async () => {
+        try {
+          const registration = await navigator.serviceWorker.register('service-worker.js', { updateViaCache: 'none' });
+
+          sessionStorage.removeItem(SW_RELOAD_GUARD_KEY);
+
+          navigator.serviceWorker.addEventListener('controllerchange', triggerSingleReload);
+
+          if (registration.waiting) {
+            requestSkipWaiting(registration.waiting);
+          }
+
+          registration.addEventListener('updatefound', () => {
+            console.log('[SW] update found');
+            watchInstallingWorker(registration, registration.installing);
+          });
+
+          if (registration.installing) {
+            watchInstallingWorker(registration, registration.installing);
+          }
+
+          console.log('[SW] checking for update');
+          await registration.update();
+        } catch (error) {
+          console.warn('[SW] registration/update failed', error);
+        }
+      });
     }
   </script>
 </body>
