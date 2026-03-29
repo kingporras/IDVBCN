@@ -2124,6 +2124,7 @@ function bindEvents() {
     route();
   });
 
+  $('homeRefreshBtn')?.addEventListener('click', refreshHomeDataManually);
 
   $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
