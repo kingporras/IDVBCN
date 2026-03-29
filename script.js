@@ -2074,6 +2074,11 @@ function openMatchModal(matchId) {
     <p class="match-score" aria-label="Marcador">${resultLabel}</p>
     <div class="team-side team-side--away">
       <img class="team-shield team-logo" src="${getTeamLogo(awayTeam)}" alt="Escudo ${escapeHtml(awayTeam)}" />
+      <img class="team-shield" src="escudo.svg" alt="Escudo ${escapeHtml(localTeam)}" />
+    </div>
+    <p class="match-score" aria-label="Marcador">${resultLabel}</p>
+    <div class="team-side team-side--away">
+      <img class="team-shield" src="escudo.svg" alt="Escudo ${escapeHtml(awayTeam)}" />
       <p class="team-name">${escapeHtml(awayTeam)}</p>
     </div>
   `;
