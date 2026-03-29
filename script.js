@@ -423,6 +423,32 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function extractInterScorers(match) {
+  const candidates = [
+    match?.inter_scorers,
+    match?.interScorers,
+    match?.scorers,
+    match?.goals,
+    match?.goleadores
+  ];
+  const source = candidates.find((item) => item != null && item !== '');
+  if (!source) return [];
+  if (Array.isArray(source)) return source.map((item) => String(item).trim()).filter(Boolean);
+  return String(source)
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function formatMatchLabel(match) {
   if (!match) return '-';
   const date = new Date(match.date || Date.now()).toLocaleString('es-ES', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
@@ -1985,8 +2011,39 @@ function openAdminLineupForMatch(matchId) {
 function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
-  $('modalTitle').textContent = `${m.rival} · ${formatDate(m.date)}`;
-  $('modalDetail').innerHTML = `Localía: ${m.home ? 'Casa' : 'Fuera'} · Campo: ${m.venue || 'Velòdrom F7'} · Resultado: ${formatMatchResult(m)} ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}`;
+  const [homeGoals, awayGoals] = getMatchResultTuple(m);
+  const hasResult = homeGoals != null && awayGoals != null;
+  const status = hasResult ? 'FINALIZADO' : 'PENDIENTE';
+  const jornada = m.jornada || m.matchday || m.round || '';
+  const localTeam = m.home ? 'Inter F7' : (m.rival || 'Rival');
+  const awayTeam = m.home ? (m.rival || 'Rival') : 'Inter F7';
+  const scorers = extractInterScorers(m);
+  const textualResult = m.result_text || m.resultText || m.resultado_texto || '';
+  const resultLabel = hasResult ? `${homeGoals} - ${awayGoals}` : '-';
+
+  $('modalHeader').innerHTML = `
+    <p class="match-modal-meta-top">${jornada ? `<span class="badge">${escapeHtml(jornada)}</span>` : ''}<span>${escapeHtml(formatDate(m.date))}</span></p>
+    <p class="match-modal-status ${hasResult ? 'is-final' : 'is-pending'}">${status}</p>
+  `;
+
+  $('modalHero').innerHTML = `
+    <div class="team-side team-side--local">
+      <p class="team-name">${escapeHtml(localTeam)}</p>
+      <img class="team-shield" src="escudo.svg" alt="Escudo ${escapeHtml(localTeam)}" />
+    </div>
+    <p class="match-score" aria-label="Marcador">${resultLabel}</p>
+    <div class="team-side team-side--away">
+      <img class="team-shield" src="escudo.svg" alt="Escudo ${escapeHtml(awayTeam)}" />
+      <p class="team-name">${escapeHtml(awayTeam)}</p>
+    </div>
+  `;
+
+  $('modalSummary').innerHTML = `
+    <p><strong>Localía:</strong> ${m.home ? 'Casa' : 'Fuera'} · <strong>Campo:</strong> ${escapeHtml(m.venue || 'Velòdrom F7')}</p>
+    ${textualResult ? `<p><strong>Resumen:</strong> ${escapeHtml(textualResult)}</p>` : ''}
+    ${scorers.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${scorers.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
+  `;
+
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
 
   const adminZone = $('modalAdminEdit');
