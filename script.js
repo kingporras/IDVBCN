@@ -30,6 +30,7 @@ const state = {
     attendanceByPlayerId: null
   },
   lineupsByMatch: {},
+  lineupFormationsByMatch: {},
   lineupEditor: {
     selectedMatchId: null,
     formation: '1-2-3-1',
@@ -63,24 +64,24 @@ const FORMATIONS = {
   '1-2-3-1': {
     slots: ['GK', 'D1', 'D2', 'M1', 'M2', 'M3', 'F1'],
     positions: {
-      GK: { x: 50, y: 88 },
-      D1: { x: 35, y: 68 },
-      D2: { x: 65, y: 68 },
-      M1: { x: 25, y: 45 },
-      M2: { x: 50, y: 42 },
-      M3: { x: 75, y: 45 },
+      GK: { x: 50, y: 85 },
+      D1: { x: 32, y: 65 },
+      D2: { x: 68, y: 65 },
+      M1: { x: 25, y: 42 },
+      M2: { x: 50, y: 45 },
+      M3: { x: 75, y: 42 },
       F1: { x: 50, y: 18 }
     }
   },
   '1-3-2-1': {
     slots: ['GK', 'D1', 'D2', 'D3', 'M1', 'M2', 'F1'],
     positions: {
-      GK: { x: 50, y: 88 },
-      D1: { x: 25, y: 68 },
-      D2: { x: 50, y: 64 },
-      D3: { x: 75, y: 68 },
-      M1: { x: 38, y: 42 },
-      M2: { x: 62, y: 42 },
+      GK: { x: 50, y: 85 },
+      D1: { x: 25, y: 65 },
+      D2: { x: 50, y: 65 },
+      D3: { x: 75, y: 65 },
+      M1: { x: 35, y: 42 },
+      M2: { x: 65, y: 42 },
       F1: { x: 50, y: 18 }
     }
   }
@@ -231,6 +232,7 @@ async function loadData() {
   if (!supabaseClient) {
     state.data = emptyData;
     state.lineupsByMatch = {};
+    state.lineupFormationsByMatch = {};
     return;
   }
 
@@ -238,7 +240,7 @@ async function loadData() {
     const [playersRes, matchesRes, lineupsRes] = await Promise.all([
       supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
       supabaseClient.from('matches').select('*').order('date_time', { ascending: true }),
-      supabaseClient.from('lineups').select('match_id, player_id, position_slot')
+      supabaseClient.from('lineups').select('match_id, player_id, position_slot, formation')
     ]);
 
     if (playersRes.error) throw playersRes.error;
@@ -252,16 +254,21 @@ async function loadData() {
     };
 
     state.lineupsByMatch = {};
+    state.lineupFormationsByMatch = {};
     (lineupsRes.data || []).forEach((row) => {
       if (!row?.match_id || !row?.player_id || !row?.position_slot) return;
       const matchId = String(row.match_id);
       if (!state.lineupsByMatch[matchId]) state.lineupsByMatch[matchId] = {};
       state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
+      if (!state.lineupFormationsByMatch[matchId] && row.formation && FORMATIONS[row.formation]) {
+        state.lineupFormationsByMatch[matchId] = row.formation;
+      }
     });
   } catch (error) {
     console.error(error);
     state.data = emptyData;
     state.lineupsByMatch = {};
+    state.lineupFormationsByMatch = {};
     showToast(error.message || 'Error cargando datos desde Supabase', 'error');
   }
 }
@@ -355,7 +362,8 @@ async function refreshPostMatchState() {
   state.pendingMatches = (pendingRows || []).map(mapMatchRow);
 }
 
-function detectFormation(assignments = {}) {
+function detectFormation(assignments = {}, preferredFormation = '') {
+  if (FORMATIONS[preferredFormation]) return preferredFormation;
   const slots = Object.keys(assignments);
   if (slots.includes('D3')) return '1-3-2-1';
   return '1-2-3-1';
@@ -369,33 +377,66 @@ function playerNameById(playerId) {
   return getPlayers().find((p) => p.id === playerId)?.name || 'Jugador';
 }
 
-function renderLineupField(container, assignments, formation, options = {}) {
-  if (!container) return;
-  const config = FORMATIONS[formation] || FORMATIONS['1-2-3-1'];
-  const clickable = Boolean(options.clickable);
-  const selectedSlot = options.selectedSlot || '';
-  const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
+function renderLineupPitch({ formation, slotToPlayerName = {}, slotToPlayerId = {}, clickable = false, selectedSlot = '', adminHighlight = false } = {}) {
+  const normalizedFormation = FORMATIONS[formation] ? formation : '1-2-3-1';
+  const config = FORMATIONS[normalizedFormation];
 
-  container.classList.add('lineup-field');
-  container.innerHTML = config.slots.map((slot) => {
+  const chips = config.slots.map((slot) => {
     const pos = config.positions[slot] || { x: 50, y: 50 };
-    const playerId = assignments[slot] || '';
-    const player = playersById[playerId];
-    const playerName = player?.name || 'Vacío';
+    const name = slotToPlayerName[slot] || '';
+    const hasPlayer = Boolean(name);
     const classes = [
-      'lineup-player',
-      player ? 'has-player' : 'empty',
+      'player-chip',
+      hasPlayer ? 'has-player' : 'placeholder',
+      clickable ? 'clickable' : '',
       selectedSlot === slot ? 'selected' : '',
-      clickable ? 'clickable' : ''
+      adminHighlight ? 'admin-highlight' : ''
     ].filter(Boolean).join(' ');
 
+    const attrs = clickable ? `data-action="lineup-slot" data-slot="${slot}"` : '';
+    const label = hasPlayer ? name : slot;
+    const playerId = slotToPlayerId[slot] || '';
+
     return `
-      <button type="button" class="${classes}" style="left:${pos.x}%;top:${pos.y}%" ${clickable ? `data-action="lineup-slot" data-slot="${slot}"` : 'disabled'}>
-        <small>${slot}</small>
-        <span>${playerName}</span>
+      <button type="button" class="${classes}" style="left:${pos.x}%;top:${pos.y}%" ${attrs} ${clickable ? '' : 'disabled'} data-player-id="${playerId}">
+        <span>${label}</span>
       </button>
     `;
   }).join('');
+
+  return `
+    <div class="pitch" data-formation="${normalizedFormation}">
+      <div class="penalty-box top"></div>
+      <div class="goal-box top"></div>
+      <div class="penalty-box bottom"></div>
+      <div class="goal-box bottom"></div>
+      ${chips}
+    </div>
+  `;
+}
+
+function renderLineupField(container, assignments, formation, options = {}) {
+  if (!container) return;
+  const playersById = Object.fromEntries(getPlayers().map((p) => [p.id, p]));
+  const slotToPlayerName = {};
+  const slotToPlayerId = {};
+
+  Object.entries(assignments || {}).forEach(([slot, playerId]) => {
+    const player = playersById[playerId];
+    if (!player) return;
+    slotToPlayerName[slot] = player.name;
+    slotToPlayerId[slot] = playerId;
+  });
+
+  container.className = 'lineup-field';
+  container.innerHTML = renderLineupPitch({
+    formation,
+    slotToPlayerName,
+    slotToPlayerId,
+    clickable: Boolean(options.clickable),
+    selectedSlot: options.selectedSlot || '',
+    adminHighlight: Boolean(options.adminHighlight)
+  });
 }
 
 function renderLineupForMatch(containerId, messageId, matchId, options = {}) {
@@ -413,7 +454,7 @@ function renderLineupForMatch(containerId, messageId, matchId, options = {}) {
     return;
   }
 
-  const formation = detectFormation(assignments);
+  const formation = detectFormation(assignments, state.lineupFormationsByMatch[matchId]);
   message.textContent = `Formación ${formation}`;
   container.classList.remove('hidden');
   renderLineupField(container, assignments, formation);
@@ -1188,7 +1229,7 @@ function hydrateLineupEditor(matchId, options = {}) {
   if (!force && sameMatch && state.lineupEditor.isDirty) return false;
 
   const assignments = { ...(getLineupAssignments(matchId) || {}) };
-  const formation = detectFormation(assignments);
+  const formation = detectFormation(assignments, state.lineupFormationsByMatch[matchId]);
   const slots = FORMATIONS[formation].slots;
   const cleaned = {};
   slots.forEach((slot) => {
@@ -1267,18 +1308,17 @@ async function saveLineupForMatch(matchId, nextAssignments) {
     return false;
   }
 
-  const rows = Object.entries(nextAssignments || {})
-    .map(([positionSlot, playerId]) => ({
-      match_id: matchId,
-      player_id: playerId,
-      position_slot: positionSlot
-    }))
-    .filter((row) => isUuid(row.match_id) && isUuid(row.player_id) && String(row.position_slot || '').trim());
+  const upsertRows = Object.entries(nextAssignments || {}).map(([slot, playerId]) => ({
+    match_id: matchId,
+    player_id: playerId,
+    position_slot: slot,
+    formation: state.lineupEditor.formation || '1-2-3-1'
+  }));
 
   if (rows.length) {
     const { error: insertError } = await supabaseClient
       .from('lineups')
-      .insert(rows);
+      .upsert(upsertRows, { onConflict: 'match_id,position_slot' });
 
     if (insertError) {
       showLineupSaveError(insertError);
@@ -1289,7 +1329,7 @@ async function saveLineupForMatch(matchId, nextAssignments) {
 
   const { data: finalRows, error: finalError } = await supabaseClient
     .from('lineups')
-    .select('match_id, player_id, position_slot')
+    .select('match_id, player_id, position_slot, formation')
     .eq('match_id', matchId);
 
   if (finalError) {
@@ -1299,8 +1339,10 @@ async function saveLineupForMatch(matchId, nextAssignments) {
   }
 
   state.lineupsByMatch[matchId] = {};
+  state.lineupFormationsByMatch[matchId] = state.lineupEditor.formation || '1-2-3-1';
   (finalRows || []).forEach((row) => {
     state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
+    if (row.formation && FORMATIONS[row.formation]) state.lineupFormationsByMatch[matchId] = row.formation;
   });
 
   state.lineupEditor.isDirty = false;
@@ -1359,7 +1401,8 @@ function renderLineupEditor() {
   field.classList.remove('hidden');
   renderLineupField(field, state.lineupEditor.assignments, formation, {
     clickable: true,
-    selectedSlot: state.lineupEditor.selectedSlot
+    selectedSlot: state.lineupEditor.selectedSlot,
+    adminHighlight: true
   });
 }
 
