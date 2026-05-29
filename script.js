@@ -1,4 +1,4 @@
-const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
+﻿const SUPABASE_URL = 'https://ogwhtfrmsyneojqtiemp.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Bbt2M-26ya-1CE4DqZDgFg_wf7Gc6gq';
 const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 const AUTH_EMAIL_DOMAIN = '@gmail.com';
@@ -10,7 +10,15 @@ const state = {
   profileStatus: 'loading',
   profileFetchErrorMessage: '',
   pendingMatches: [],
-  postMatchEditor: { open: false, matchId: null, playerStatsDraft: {}, draftsByMatch: {}, ui: { q: '', onlyEdited: false } },
+  actaEditor: {
+    selectedMatchId: null,
+    resultHome: '',
+    resultAway: '',
+    goalRows: [],
+    cardRows: [],
+    schemaStatus: 'unknown',
+    loadedMatchId: null
+  },
   selectedMatchId: null,
   convocatoria: {
     matchId: null,
@@ -326,6 +334,309 @@ function isPendingMatch(match) {
   const [homeGoals, awayGoals] = getMatchResultTuple(match);
   const missingResult = homeGoals == null || awayGoals == null;
   return past && missingResult;
+}
+
+function getActaMatchOptions() {
+  return getMatches()
+    .filter((m) => isUuid(m.id))
+    .sort((a, b) => new Date(b.date) - new Date(a.date));
+}
+
+function getDefaultActaMatch() {
+  const options = getActaMatchOptions();
+  if (!options.length) return null;
+  const pending = options.find((m) => isPendingMatch(m));
+  if (pending) return pending;
+  const latestPast = options.find((m) => new Date(m.date) < new Date());
+  return latestPast || getUpcomingMatch() || options[0];
+}
+
+function getActaInterGoals(match, homeGoals, awayGoals) {
+  const home = Number(homeGoals);
+  const away = Number(awayGoals);
+  if (!match || !Number.isFinite(home) || !Number.isFinite(away) || home < 0 || away < 0) return 0;
+  return match.home ? home : away;
+}
+
+function getActaSelectedMatch() {
+  const selectedId = state.actaEditor?.selectedMatchId;
+  return getMatches().find((m) => m.id === selectedId) || getDefaultActaMatch();
+}
+
+function isMissingActaSchemaError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return ['42P01', '42703', '42883', 'PGRST202', 'PGRST205'].includes(code)
+    || message.includes('match_events')
+    || message.includes('match_reports')
+    || message.includes('save_match_acta')
+    || message.includes('could not find the function');
+}
+
+function resetActaEditorForMatch(match) {
+  if (!match) return;
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  state.actaEditor.selectedMatchId = match.id;
+  state.actaEditor.resultHome = homeGoals == null ? '' : String(homeGoals);
+  state.actaEditor.resultAway = awayGoals == null ? '' : String(awayGoals);
+  state.actaEditor.goalRows = [];
+  state.actaEditor.cardRows = [];
+  reconcileActaGoalRows();
+}
+
+function reconcileActaGoalRows() {
+  const match = getActaSelectedMatch();
+  const desired = getActaInterGoals(match, state.actaEditor.resultHome, state.actaEditor.resultAway);
+  const current = Array.isArray(state.actaEditor.goalRows) ? state.actaEditor.goalRows : [];
+  const next = current.slice(0, desired);
+  while (next.length < desired) {
+    next.push({ scorerType: 'player', scorerId: '', assistId: '' });
+  }
+  state.actaEditor.goalRows = next;
+}
+
+async function loadActaEventsForMatch(matchId) {
+  if (!supabaseClient || !isUuid(matchId)) return [];
+  const { data, error } = await supabaseClient
+    .from('match_events')
+    .select('id,event_type,team,player_id,assist_player_id,minute,sequence,own_goal')
+    .eq('match_id', matchId)
+    .order('sequence', { ascending: true, nullsFirst: false })
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    if (isMissingActaSchemaError(error)) {
+      state.actaEditor.schemaStatus = 'missing';
+      return [];
+    }
+    console.warn('[acta] events load error', error);
+    state.actaEditor.schemaStatus = 'error';
+    return [];
+  }
+
+  state.actaEditor.schemaStatus = 'ready';
+  return data || [];
+}
+
+async function hydrateActaEditorFromDb(matchId, options = {}) {
+  const match = getMatches().find((m) => m.id === matchId) || getDefaultActaMatch();
+  if (!match) return;
+  const force = Boolean(options.force);
+  if (!force && state.actaEditor.loadedMatchId === match.id) return;
+
+  resetActaEditorForMatch(match);
+  const events = await loadActaEventsForMatch(match.id);
+  const goalRows = [];
+  const cardRows = [];
+
+  events.forEach((event) => {
+    if (String(event.team || '').toLowerCase() !== 'inter') return;
+    if (event.event_type === 'goal') {
+      goalRows.push({
+        scorerType: event.own_goal ? 'own_goal' : (event.player_id ? 'player' : 'team'),
+        scorerId: event.player_id ? String(event.player_id) : '',
+        assistId: event.assist_player_id ? String(event.assist_player_id) : ''
+      });
+    }
+    if (event.event_type === 'yellow_card' || event.event_type === 'red_card') {
+      cardRows.push({
+        playerId: event.player_id ? String(event.player_id) : '',
+        cardType: event.event_type === 'red_card' ? 'rc' : 'yc'
+      });
+    }
+  });
+
+  if (goalRows.length) state.actaEditor.goalRows = goalRows;
+  if (cardRows.length) state.actaEditor.cardRows = cardRows;
+  reconcileActaGoalRows();
+  state.actaEditor.loadedMatchId = match.id;
+  renderActaDynamicLists();
+}
+
+function playerSelectOptions(selectedId, placeholder = 'Selecciona jugador') {
+  const players = getPlayers().filter((p) => isUuid(p.id));
+  return [`<option value="">${placeholder}</option>`].concat(
+    players.map((p) => `<option value="${p.id}" ${p.id === selectedId ? 'selected' : ''}>#${p.dorsal || '-'} ${escapeHtml(p.name)}</option>`)
+  ).join('');
+}
+
+function renderActaDynamicLists() {
+  const match = getActaSelectedMatch();
+  if (!match) return;
+  reconcileActaGoalRows();
+
+  const goalsList = $('actaGoalsList');
+  const cardsList = $('actaCardsList');
+  const goalsCount = $('actaGoalsCount');
+  const schemaHint = $('actaSchemaHint');
+  const interGoals = getActaInterGoals(match, state.actaEditor.resultHome, state.actaEditor.resultAway);
+
+  if (goalsCount) goalsCount.textContent = `${state.actaEditor.goalRows.length}/${interGoals}`;
+  if (schemaHint) {
+    schemaHint.textContent = state.actaEditor.schemaStatus === 'missing'
+      ? 'Falta ejecutar el SQL de Acta en Supabase antes de guardar.'
+      : 'El Acta actualiza calendario, club y stats. El MVP sigue separado.';
+  }
+
+  if (goalsList) {
+    goalsList.innerHTML = state.actaEditor.goalRows.length
+      ? state.actaEditor.goalRows.map((row, index) => {
+        const scorerType = row.scorerType || 'player';
+        const disabled = scorerType === 'player' ? '' : 'disabled';
+        return `<article class="acta-row" data-goal-index="${index}">
+          <strong>Gol ${index + 1}</strong>
+          <label>Tipo</label>
+          <select class="input" data-acta-field="scorerType">
+            <option value="player" ${scorerType === 'player' ? 'selected' : ''}>Jugador</option>
+            <option value="team" ${scorerType === 'team' ? 'selected' : ''}>Gol de equipo</option>
+            <option value="own_goal" ${scorerType === 'own_goal' ? 'selected' : ''}>Propia puerta</option>
+          </select>
+          <label>Goleador</label>
+          <select class="input" data-acta-field="scorerId" ${disabled}>${playerSelectOptions(row.scorerId)}</select>
+          <label>Asistencia</label>
+          <select class="input" data-acta-field="assistId">${playerSelectOptions(row.assistId, 'Sin asistencia')}</select>
+        </article>`;
+      }).join('')
+      : '<p class="acta-empty">Pon el resultado para abrir los goles del Inter.</p>';
+  }
+
+  if (cardsList) {
+    const rows = Array.isArray(state.actaEditor.cardRows) ? state.actaEditor.cardRows : [];
+    cardsList.innerHTML = rows.length
+      ? rows.map((row, index) => `<article class="acta-row acta-row--card" data-card-index="${index}">
+          <strong>Tarjeta ${index + 1}</strong>
+          <label>Jugador</label>
+          <select class="input" data-acta-field="cardPlayerId">${playerSelectOptions(row.playerId)}</select>
+          <label>Tipo</label>
+          <select class="input" data-acta-field="cardType">
+            <option value="yc" ${row.cardType !== 'rc' ? 'selected' : ''}>Amarilla</option>
+            <option value="rc" ${row.cardType === 'rc' ? 'selected' : ''}>Roja</option>
+          </select>
+          <button type="button" class="btn btn-secondary" data-action="acta-remove-card" data-index="${index}">Quitar</button>
+        </article>`).join('')
+      : '<p class="acta-empty">Sin tarjetas registradas.</p>';
+  }
+}
+
+function readActaResultFromInputs() {
+  state.actaEditor.resultHome = $('actaResultHome')?.value ?? state.actaEditor.resultHome;
+  state.actaEditor.resultAway = $('actaResultAway')?.value ?? state.actaEditor.resultAway;
+  reconcileActaGoalRows();
+}
+
+function buildActaEventsPayload() {
+  const match = getActaSelectedMatch();
+  if (String(state.actaEditor.resultHome ?? '').trim() === '' || String(state.actaEditor.resultAway ?? '').trim() === '') {
+    throw new Error('Falta el resultado del partido');
+  }
+  const homeGoals = Number(state.actaEditor.resultHome);
+  const awayGoals = Number(state.actaEditor.resultAway);
+  if (!match || !Number.isInteger(homeGoals) || !Number.isInteger(awayGoals) || homeGoals < 0 || awayGoals < 0) {
+    throw new Error('Resultado invalido');
+  }
+
+  const expectedGoals = getActaInterGoals(match, homeGoals, awayGoals);
+  if (state.actaEditor.goalRows.length !== expectedGoals) {
+    throw new Error('Los goles del Acta no cuadran con el resultado del Inter');
+  }
+
+  const events = [];
+  state.actaEditor.goalRows.forEach((row, index) => {
+    const scorerType = row.scorerType || 'player';
+    const playerId = scorerType === 'player' ? row.scorerId : null;
+    if (scorerType === 'player' && !isUuid(playerId)) {
+      throw new Error(`Falta goleador en el Gol ${index + 1}`);
+    }
+    events.push({
+      event_type: 'goal',
+      team: 'inter',
+      player_id: playerId || null,
+      assist_player_id: isUuid(row.assistId) ? row.assistId : null,
+      minute: null,
+      sequence: index + 1,
+      own_goal: scorerType === 'own_goal'
+    });
+  });
+
+  (state.actaEditor.cardRows || []).forEach((row, index) => {
+    if (!isUuid(row.playerId)) throw new Error(`Falta jugador en la Tarjeta ${index + 1}`);
+    events.push({
+      event_type: row.cardType === 'rc' ? 'red_card' : 'yellow_card',
+      team: 'inter',
+      player_id: row.playerId,
+      assist_player_id: null,
+      minute: null,
+      sequence: 100 + index,
+      own_goal: false
+    });
+  });
+
+  return { match, homeGoals, awayGoals, events };
+}
+
+async function saveActa() {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!supabaseClient) return showToast('Supabase no disponible', 'error');
+  readActaResultFromInputs();
+
+  let payload;
+  try {
+    payload = buildActaEventsPayload();
+  } catch (error) {
+    showToast(error.message || 'Acta invalida', 'error');
+    return;
+  }
+
+  const { match, homeGoals, awayGoals, events } = payload;
+  const button = $('saveActaBtn');
+  const previousLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Guardando...';
+  }
+
+  const { error } = await supabaseClient.rpc('save_match_acta', {
+    p_match_id: match.id,
+    p_result_home: homeGoals,
+    p_result_away: awayGoals,
+    p_events: events,
+    p_notes: null
+  });
+
+  if (button) {
+    button.disabled = false;
+    button.textContent = previousLabel || 'Publicar acta';
+  }
+
+  if (error) {
+    console.error('[acta] save error', error);
+    if (isMissingActaSchemaError(error)) {
+      state.actaEditor.schemaStatus = 'missing';
+      renderActaDynamicLists();
+      showToast('Falta ejecutar el SQL de Acta en Supabase', 'error');
+      return;
+    }
+    showToast(error.message || 'Error guardando Acta', 'error');
+    return;
+  }
+
+  clearMatchResultOverride(match.id);
+  state.actaEditor.schemaStatus = 'ready';
+  state.actaEditor.loadedMatchId = null;
+  await hydrateSessionData();
+  renderAll();
+  showToast('Acta publicada', 'success');
+}
+
+async function openAdminActaForMatch(matchId) {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!isUuid(matchId)) return showToast('Este partido no es UUID', 'error');
+  state.actaEditor.selectedMatchId = matchId;
+  await hydrateActaEditorFromDb(matchId, { force: true });
+  window.location.hash = '#admin';
+  renderAdmin();
+  route();
+  requestAnimationFrame(() => document.getElementById('adminActaBlock')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }));
 }
 
 async function refreshPostMatchState() {
@@ -853,17 +1164,7 @@ function renderHome() {
     ? 'Ir a Convocatoria'
     : (meStatus === 'yes' ? 'Asistencia confirmada · Cambiar' : 'Confirmar asistencia');
 
-  $('homePendingHint').textContent = state.pendingMatches.length ? `Último partido: pendiente (${state.pendingMatches[0].rival})` : '';
-
-  const adminPendingCard = $('adminPendingCard');
-  if (isAdmin() && state.pendingMatches.length) {
-    adminPendingCard.classList.remove('hidden');
-    $('adminPendingList').innerHTML = state.pendingMatches.map((m) => `<li>${formatDate(m.date)} · ${m.rival} <button type="button" data-action="open-post-match" data-id="${m.id}">Actualizar ahora</button></li>`).join('');
-  } else {
-    adminPendingCard.classList.add('hidden');
-    $('adminPendingList').innerHTML = '';
-  }
-
+  if ($('homePendingHint')) $('homePendingHint').textContent = '';
   $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
   if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = nextMatch ? 'Solo lectura · publicación del cuerpo técnico.' : '';
   renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null, { emptyMessage: 'Alineación aún no publicada' });
@@ -980,19 +1281,29 @@ function renderCalendario() {
     return;
   }
 
-  $('calendarList').innerHTML = matches.map((m) => `
-    <li>
-      <button type="button" data-action="open-match" data-id="${m.id}">
-        ${formatDate(m.date)} · ${m.rival} (${m.home ? 'Casa' : 'Fuera'}) · ${m.venue || 'Velòdrom F7'} · ${formatMatchResult(m)}
-      </button>
-      ${isPendingMatch(m) ? '<span class="badge pending">Pendiente de actualizar</span>' : ''}
-    </li>
-  `).join('');
+  $('calendarList').innerHTML = matches.map((m) => {
+    const [homeGoals, awayGoals] = getMatchResultTuple(m);
+    const hasResult = homeGoals != null && awayGoals != null;
+    const isFuture = new Date(m.date) >= new Date();
+    const localTeam = m.home ? 'Inter' : m.rival;
+    const awayTeam = m.home ? m.rival : 'Inter';
+    const score = hasResult ? `${homeGoals}-${awayGoals}` : (isFuture ? 'Próximo' : 'Sin acta');
+    return `
+      <li class="calendar-match ${hasResult ? 'is-final' : 'is-open'}">
+        <button type="button" class="calendar-match__button" data-action="open-match" data-id="${m.id}">
+          <span class="calendar-match__date">${formatDate(m.date)}</span>
+          <span class="calendar-match__teams">${escapeHtml(localTeam)} <strong>${score}</strong> ${escapeHtml(awayTeam)}</span>
+          <span class="calendar-match__meta">${m.home ? 'Casa' : 'Fuera'} · ${escapeHtml(m.venue || 'Velòdrom F7')}</span>
+        </button>
+      </li>
+    `;
+  }).join('');
 }
 
 function renderClub() {
   const matches = getMatches();
   let PJ = 0, PG = 0, PE = 0, PP = 0, GF = 0, GC = 0;
+  const finishedMatches = [];
 
   matches.forEach((m) => {
     const [a, b] = getMatchResultTuple(m);
@@ -1005,22 +1316,56 @@ function renderClub() {
     if (our > their) PG += 1;
     else if (our === their) PE += 1;
     else PP += 1;
+    finishedMatches.push({ ...m, our, their });
   });
 
-  $('clubStats').innerHTML = [
-    ['PJ', PJ], ['PG', PG], ['PE', PE], ['PP', PP], ['GF', GF], ['GC', GC]
-  ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('');
+  const diff = GF - GC;
+  const recent = finishedMatches
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 5)
+    .map((m) => `<span class="form-dot ${m.our > m.their ? 'is-win' : (m.our === m.their ? 'is-draw' : 'is-loss')}">${m.our > m.their ? 'G' : (m.our === m.their ? 'E' : 'P')}</span>`)
+    .join('');
+
+  $('clubStats').innerHTML = `
+    <section class="club-overview">
+      <article class="club-record">
+        <small>Balance</small>
+        <strong>${PG}-${PE}-${PP}</strong>
+        <span>${PJ} partidos jugados</span>
+      </article>
+      <article class="club-record">
+        <small>Goles</small>
+        <strong>${GF}:${GC}</strong>
+        <span>${diff >= 0 ? '+' : ''}${diff} diferencia</span>
+      </article>
+      <article class="club-form">
+        <small>Racha</small>
+        <div>${recent || '<span class="muted">Sin resultados</span>'}</div>
+      </article>
+      <div class="club-mini-grid">
+        ${[
+          ['PJ', PJ], ['PG', PG], ['PE', PE], ['PP', PP], ['GF', GF], ['GC', GC]
+        ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('')}
+      </div>
+    </section>`;
 
   const players = getPlayers().sort((a, b) => (a.dorsal || 999) - (b.dorsal || 999));
   $('squadList').innerHTML = players.length ? players.map((p) => `
-    <li class="player-card">
-      <div>
-        <svg class="jersey-icon" viewBox="0 0 64 64" aria-hidden="true"><path d="M18 10l7 6h14l7-6 8 8-8 8v30H18V26l-8-8z" fill="#4DA3FF" stroke="#13324f" stroke-width="2"/><text x="32" y="42" text-anchor="middle" font-size="22" font-weight="800" fill="#fff">${p.dorsal || '-'}</text></svg>
+    <li class="squad-card">
+      <div class="squad-shirt" aria-hidden="true">
+        <span>${p.dorsal || '-'}</span>
       </div>
-      <div>
-        <div><strong>${p.name}</strong><span class="chip">${p.position || 'N/D'}</span></div>
-        <div class="chips">
-          <span class="chip">⚽ ${p.stats.goles || 0}</span><span class="chip">🅰️ ${p.stats.asistencias || 0}</span><span class="chip">🏆 ${p.stats.mvps || 0}</span><span class="chip">🟨 ${p.stats.amarillas || 0}</span><span class="chip">🟥 ${p.stats.rojas || 0}</span>
+      <div class="squad-card__body">
+        <div class="squad-card__top">
+          <strong>${escapeHtml(p.name)}</strong>
+          <span class="chip">${escapeHtml(p.position || 'N/D')}</span>
+        </div>
+        <div class="squad-statline">
+          <span><strong>${p.stats.goles || 0}</strong> G</span>
+          <span><strong>${p.stats.asistencias || 0}</strong> A</span>
+          <span><strong>${p.stats.mvps || 0}</strong> MVP</span>
+          <span><strong>${p.stats.amarillas || 0}</strong> TA</span>
+          <span><strong>${p.stats.rojas || 0}</strong> TR</span>
         </div>
       </div>
     </li>`).join('') : '<li>No hay jugadores cargados todavía.</li>';
@@ -1165,7 +1510,31 @@ function renderMvp() {
     .map((p) => ({ ...p, total: (state.mvp.globalTotals[p.id] || 0), selectedVotes: votesForSelected[p.id] || 0 }))
     .sort((a, b) => b.total - a.total);
 
-  $('mvpRankingList').innerHTML = ranking.map((p) => `<li>${p.name} <span class="badge">${p.total}</span> <small>(${p.selectedVotes} en partido)</small></li>`).join('');
+  const leaderTotal = Math.max(1, ...ranking.map((p) => Number(p.total || 0)));
+  const podium = ranking.slice(0, 3).map((p, index) => `
+    <article class="mvp-podium__card is-${index + 1}">
+      <span class="mvp-podium__place">${index + 1}</span>
+      <strong>${escapeHtml(p.name)}</strong>
+      <span>${p.total} MVP</span>
+    </article>
+  `).join('');
+
+  $('mvpRankingList').innerHTML = `
+    <section class="mvp-podium">${podium || '<p class="muted">Sin votos todavía.</p>'}</section>
+    <section class="mvp-rank-list">
+      ${ranking.map((p, index) => `
+        <article class="mvp-rank-row">
+          <span class="mvp-rank-row__pos">${index + 1}</span>
+          <span class="mvp-rank-row__avatar">${escapeHtml(String(p.name || 'J').charAt(0).toUpperCase() || 'J')}</span>
+          <div>
+            <strong>${escapeHtml(p.name)}</strong>
+            <span class="mvp-rank-row__bar"><span style="width:${Math.max(6, Math.round((Number(p.total || 0) / leaderTotal) * 100))}%"></span></span>
+          </div>
+          <span class="badge">${p.total}</span>
+        </article>
+      `).join('')}
+    </section>
+  `;
 
   const debug = $('mvpDebug');
   if (debug && isDebugUIEnabled()) {
@@ -1371,46 +1740,151 @@ function renderAdmin() {
   adminView?.classList.toggle('hidden', !adminMode);
   if (!adminMode || !adminView) return;
 
-  const matches = getMatches();
-  const players = getPlayers();
-  const hasPending = state.pendingMatches.length > 0;
-  const pendingPrimary = state.pendingMatches[0] || null;
+  {
+    const matches = getActaMatchOptions();
+    const actaMatch = getActaSelectedMatch();
+    if (actaMatch && !state.actaEditor.selectedMatchId) resetActaEditorForMatch(actaMatch);
+    const pendingPrimary = matches.find((m) => isPendingMatch(m));
+    const notice = pendingPrimary
+      ? `Acta pendiente: ${formatMatchShort(pendingPrimary)}`
+      : 'Sin actas pendientes. Puedes revisar o corregir cualquier partido ya jugado.';
+    const homeLabel = actaMatch?.home ? 'Inter' : (actaMatch?.rival || 'Rival');
+    const awayLabel = actaMatch?.home ? (actaMatch?.rival || 'Rival') : 'Inter';
+    const matchOptions = matches.map((m) => `<option value="${m.id}" ${m.id === state.actaEditor.selectedMatchId ? 'selected' : ''}>${formatMatchLabel(m)}</option>`).join('');
 
-  adminView.innerHTML = `<section class="admin-block admin-quick card card--accent" style="--accent-color: var(--dorado)"><h2 class="section-title">Centro de Control</h2><p class="muted">Gestión rápida de partido, stats y convocatoria.</p><div class="admin-quick-actions"><button type="button" id="quickPostBtn" class="btn btn-secondary">Ir a post-partido</button><button type="button" id="quickLineupBtn" class="btn btn-secondary">Ir a alineación</button><button type="button" id="quickImageBtn" class="btn btn-gold">Generar imagen</button><button type="button" id="quickConvBtn" class="btn btn-secondary">Ir a Convocatoria</button></div></section><section id="adminPostMatchBlock" class="admin-block admin-postmatch card ${hasPending ? 'is-pending' : ''}"><h3 class="section-title">Post-partido pendiente</h3><p class="muted">${hasPending ? `Pendiente: ${formatMatchShort(pendingPrimary)}` : 'Sin pendientes por actualizar.'}</p>${hasPending ? `<button type="button" id="adminPendingCtaBtn" class="btn btn-primary">Completar post-partido</button>` : ''}<ul id="adminPendingListAccordion" class="list"></ul></section><section id="lineupEditorSection" class="admin-block admin-lineup card" open><h3 class="section-title">Alineación por partido</h3><label for="lineupMatchSelector">Partido</label><select id="lineupMatchSelector" class="input"></select><div id="lineupFormationToggle" class="formation-toggle"><button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button><button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button></div><p id="lineupAdminMessage" class="lineup-message"></p><div id="lineupFieldAdmin" class="lineup-field hidden"></div><label for="lineupSlotSelector">Slot</label><select id="lineupSlotSelector" class="input"></select><label for="lineupPlayerSelectorForSlot">Jugador</label><select id="lineupPlayerSelectorForSlot" class="input"></select><button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button></section><section class="admin-block admin-tools"><details class="card" open><summary>Resultados</summary><form id="resultForm"><select id="adminMatchSelector" class="input"></select><input id="adminResult" class="input" placeholder="Ej: 2-1 o -" required /><button type="submit" class="btn btn-primary">Guardar resultado</button></form></details><details class="card"><summary>Stats</summary><form id="playerStatsForm"><select id="adminPlayerSelector" class="input"></select><input id="sGoles" class="input" type="number" min="0" placeholder="Goles" required /><input id="sAsist" class="input" type="number" min="0" placeholder="Asistencias" required /><input id="sAma" class="input" type="number" min="0" placeholder="Amarillas" required /><input id="sRojas" class="input" type="number" min="0" placeholder="Rojas" required /><input id="sMvps" class="input" type="number" min="0" placeholder="MVPs base" required /><button type="submit" class="btn btn-primary">Guardar stats</button></form></details><details class="card"><summary>Imagen convocatoria</summary><button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button></details></section>`;
-  $('adminMatchSelector').innerHTML = matches.map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('');
-  $('adminPlayerSelector').innerHTML = players.map((p) => `<option value="${p.id}">${p.name}</option>`).join('');
-  $('adminPendingListAccordion').innerHTML = state.pendingMatches.length ? state.pendingMatches.map((m) => `<li><button class="btn btn-secondary" type="button" data-action="admin-open-postmatch" data-id="${m.id}">${formatMatchShort(m)}</button></li>`).join('') : '<li class="muted">Sin pendientes.</li>';
-  $('quickPostBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
-  $('adminPendingCtaBtn')?.addEventListener('click', () => state.pendingMatches[0] && openPostMatchModal(state.pendingMatches[0].id));
-  $('quickLineupBtn')?.addEventListener('click', () => {
-    const pendingSelected = state.postMatchEditor?.matchId;
-    const preferredMatchId = isUuid(pendingSelected)
-      ? pendingSelected
-      : (isUuid(state.lineupEditor.selectedMatchId) ? state.lineupEditor.selectedMatchId : null);
-    if (preferredMatchId) {
-      state.lineupEditor.selectedMatchId = preferredMatchId;
-      hydrateLineupEditor(preferredMatchId, { force: true });
+    adminView.innerHTML = `
+      <section id="adminActaBlock" class="admin-block admin-acta card card--accent" style="--accent-color: var(--dorado)">
+        <div class="admin-section-head">
+          <div>
+            <h2 class="section-title">Acta del partido</h2>
+            <p class="muted">${escapeHtml(notice)}</p>
+          </div>
+          <span class="acta-pill">Admin</span>
+        </div>
+        ${matches.length ? `
+          <label for="actaMatchSelector">Partido</label>
+          <select id="actaMatchSelector" class="input">${matchOptions}</select>
+          <div class="acta-score-grid">
+            <label><span>${escapeHtml(homeLabel)}</span><input id="actaResultHome" class="input" type="number" min="0" value="${escapeHtml(state.actaEditor.resultHome)}" /></label>
+            <label><span>${escapeHtml(awayLabel)}</span><input id="actaResultAway" class="input" type="number" min="0" value="${escapeHtml(state.actaEditor.resultAway)}" /></label>
+          </div>
+          <div class="acta-panel">
+            <div class="acta-panel__head">
+              <h3>Goles del Inter</h3>
+              <span id="actaGoalsCount" class="badge">0/0</span>
+            </div>
+            <div id="actaGoalsList" class="acta-list"></div>
+          </div>
+          <div class="acta-panel">
+            <div class="acta-panel__head">
+              <h3>Tarjetas</h3>
+              <button type="button" id="actaAddCardBtn" class="btn btn-secondary">Añadir tarjeta</button>
+            </div>
+            <div id="actaCardsList" class="acta-list"></div>
+          </div>
+          <p id="actaSchemaHint" class="muted"></p>
+          <button id="saveActaBtn" type="button" class="btn btn-primary">Publicar acta</button>
+        ` : '<p class="muted">No hay partidos UUID de Supabase para crear actas.</p>'}
+      </section>
+
+      <section id="lineupEditorSection" class="admin-block admin-lineup card">
+        <h3 class="section-title">Alineación por partido</h3>
+        <label for="lineupMatchSelector">Partido</label>
+        <select id="lineupMatchSelector" class="input"></select>
+        <div id="lineupFormationToggle" class="formation-toggle">
+          <button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button>
+          <button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button>
+        </div>
+        <p id="lineupAdminMessage" class="lineup-message"></p>
+        <div id="lineupFieldAdmin" class="lineup-field hidden"></div>
+        <label for="lineupSlotSelector">Slot</label>
+        <select id="lineupSlotSelector" class="input"></select>
+        <label for="lineupPlayerSelectorForSlot">Jugador</label>
+        <select id="lineupPlayerSelectorForSlot" class="input"></select>
+        <button id="saveLineupBtn" type="button" class="btn btn-primary">Guardar alineación</button>
+      </section>
+
+      <section class="admin-block admin-image card card--accent" style="--accent-color: var(--celeste)">
+        <h3 class="section-title">Imagen convocatoria</h3>
+        <p class="muted">Se mantiene la función actual. La mejora visual grande la dejamos preparada para la siguiente pasada.</p>
+        <select id="adminImageMatchSelector" class="input">${getMatches().filter((m) => isUuid(m.id)).map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('')}</select>
+        <button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
+      </section>
+    `;
+
+    if (actaMatch && state.actaEditor.loadedMatchId !== actaMatch.id) {
+      hydrateActaEditorFromDb(actaMatch.id).then(() => {
+        if ((window.location.hash.replace('#', '') || 'home') === 'admin') renderAdmin();
+      });
     }
-    window.location.hash = '#admin';
-    renderAdmin();
-    route();
-    requestAnimationFrame(() => (document.querySelector('#lineupEditorSection') || document.querySelector('#lineupFieldAdmin'))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  });
-  $('quickImageBtn')?.addEventListener('click', () => document.getElementById('adminImageBtn')?.click());
-  $('quickConvBtn')?.addEventListener('click', () => window.location.hash = '#convocatoria');
-  $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value, { force: true }); renderLineupEditor(); });
-  $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
-  $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => { assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value); renderLineupEditor(); });
-  $('saveLineupBtn')?.addEventListener('click', async () => { const matchId = state.lineupEditor.selectedMatchId; const formation = state.lineupEditor.formation; const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation); const ok = await saveLineupForMatch(matchId, assignments); if (!ok) return; hydrateLineupEditor(matchId, { force: true }); renderLineupEditor(); renderHome(); showToast('Alineación guardada', 'success'); });
-  const adminImageBtn = $('adminImageBtn');
-  if (adminImageBtn) {
-    adminImageBtn.onclick = () => {
-      const id = state.selectedMatchId || getUpcomingMatch?.()?.id;
+
+    $('actaMatchSelector')?.addEventListener('change', async (e) => {
+      await hydrateActaEditorFromDb(e.target.value, { force: true });
+      renderAdmin();
+    });
+    $('actaResultHome')?.addEventListener('input', () => { readActaResultFromInputs(); renderActaDynamicLists(); });
+    $('actaResultAway')?.addEventListener('input', () => { readActaResultFromInputs(); renderActaDynamicLists(); });
+    $('actaGoalsList')?.addEventListener('change', (e) => {
+      const rowEl = e.target.closest('[data-goal-index]');
+      if (!rowEl) return;
+      const index = Number(rowEl.dataset.goalIndex);
+      const row = state.actaEditor.goalRows[index];
+      if (!row) return;
+      const field = e.target.dataset.actaField;
+      if (field === 'scorerType') {
+        row.scorerType = e.target.value;
+        if (row.scorerType !== 'player') row.scorerId = '';
+      }
+      if (field === 'scorerId') row.scorerId = e.target.value;
+      if (field === 'assistId') row.assistId = e.target.value;
+      renderActaDynamicLists();
+    });
+    $('actaAddCardBtn')?.addEventListener('click', () => {
+      state.actaEditor.cardRows.push({ playerId: '', cardType: 'yc' });
+      renderActaDynamicLists();
+    });
+    $('actaCardsList')?.addEventListener('change', (e) => {
+      const rowEl = e.target.closest('[data-card-index]');
+      if (!rowEl) return;
+      const index = Number(rowEl.dataset.cardIndex);
+      const row = state.actaEditor.cardRows[index];
+      if (!row) return;
+      if (e.target.dataset.actaField === 'cardPlayerId') row.playerId = e.target.value;
+      if (e.target.dataset.actaField === 'cardType') row.cardType = e.target.value;
+    });
+    $('actaCardsList')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-action="acta-remove-card"]');
+      if (!btn) return;
+      state.actaEditor.cardRows.splice(Number(btn.dataset.index), 1);
+      renderActaDynamicLists();
+    });
+    $('saveActaBtn')?.addEventListener('click', saveActa);
+
+    $('lineupMatchSelector')?.addEventListener('change', (e) => { hydrateLineupEditor(e.target.value, { force: true }); renderLineupEditor(); });
+    $('lineupSlotSelector')?.addEventListener('change', (e) => { state.lineupEditor.selectedSlot = e.target.value; renderLineupEditor(); });
+    $('lineupPlayerSelectorForSlot')?.addEventListener('change', (e) => { assignLineupPlayer(state.lineupEditor.selectedSlot, e.target.value); renderLineupEditor(); });
+    $('saveLineupBtn')?.addEventListener('click', async () => {
+      const matchId = state.lineupEditor.selectedMatchId;
+      const formation = state.lineupEditor.formation;
+      const assignments = normalizeAssignmentsForFormation(state.lineupEditor.assignments, formation);
+      const ok = await saveLineupForMatch(matchId, assignments);
+      if (!ok) return;
+      hydrateLineupEditor(matchId, { force: true });
+      renderLineupEditor();
+      renderHome();
+      showToast('Alineación guardada', 'success');
+    });
+    $('adminImageBtn')?.addEventListener('click', () => {
+      const id = $('adminImageMatchSelector')?.value || state.selectedMatchId || getUpcomingMatch?.()?.id;
       if (!id) return showToastOrAlert('No hay partido seleccionado ni próximo partido disponible', 'error');
       generateInstagramPoster(id);
-    };
+    });
+
+    renderLineupEditor();
+    renderActaDynamicLists();
+    return;
   }
-  renderLineupEditor();
+
 }
 
 function renderAll() {
@@ -1474,7 +1948,7 @@ async function refreshSessionData(options = {}) {
     refreshInFlight = false;
     if (button) {
       button.disabled = false;
-      button.textContent = previousLabel || 'Actualizar datos';
+      button.textContent = previousLabel || 'Actualizar';
     }
   }
 }
@@ -1842,201 +2316,6 @@ async function generateInstagramPoster(matchId) {
   }
 }
 
-function clampStatValue(value) {
-  const n = Number(value ?? 0);
-  if (!Number.isFinite(n)) return 0;
-  return Math.max(0, n);
-}
-
-function ensureDraftForPlayer(playerId) {
-  const d = state.postMatchEditor.playerStatsDraft || (state.postMatchEditor.playerStatsDraft = {});
-  if (!d[playerId]) d[playerId] = { goals: 0, assists: 0, yc: 0, rc: 0, mvps: 0 };
-  return d[playerId];
-}
-
-function buildPlayerStatsDraftFromCurrentPlayers() {
-  const players = getPlayers();
-  return Object.fromEntries(players.map((p) => [p.id, {
-    goals: Number(p.stats.goles || 0),
-    assists: Number(p.stats.asistencias || 0),
-    yc: Number(p.stats.amarillas || 0),
-    rc: Number(p.stats.rojas || 0),
-    mvps: Number(p.stats.mvps || 0)
-  }]));
-}
-
-function isDraftEdited(d) {
-  return (d.goals || 0) !== 0 || (d.assists || 0) !== 0 || (d.yc || 0) !== 0 || (d.rc || 0) !== 0 || (d.mvps || 0) !== 0;
-}
-
-function renderPostMatchPlayersList() {
-  const container = $('postPlayersList');
-  if (!container) return;
-
-  const players = getPlayers();
-  if (!players.length) {
-    container.innerHTML = "<p class='muted'>No hay jugadores para editar.</p>";
-    return;
-  }
-
-  if (!state.postMatchEditor.playerStatsDraft || !Object.keys(state.postMatchEditor.playerStatsDraft).length) {
-    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
-  }
-
-  if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
-  const q = String(state.postMatchEditor.ui.q || '').trim().toLowerCase();
-  const onlyEdited = Boolean(state.postMatchEditor.ui.onlyEdited);
-  const filteredPlayers = players.filter((p) => {
-    const draft = ensureDraftForPlayer(p.id);
-    const byQuery = !q || String(p.name || '').toLowerCase().includes(q);
-    const byEdited = !onlyEdited || isDraftEdited(draft);
-    return byQuery && byEdited;
-  });
-
-  if (!filteredPlayers.length) {
-    container.innerHTML = "<p class='muted'>No hay jugadores para este filtro.</p>";
-    return;
-  }
-
-  container.innerHTML = `<div class="pm-list">${filteredPlayers.map((p) => {
-    const d = ensureDraftForPlayer(p.id);
-    const edited = isDraftEdited(d);
-    return `<div class="pm-card" data-player-id="${p.id}">
-      <div class="pm-card-top">
-        <div class="pm-name">#${p.dorsal || '-'} ${p.name}</div>
-        <div class="pm-edited" style="display:${edited ? 'inline-flex' : 'none'}">Editado</div>
-      </div>
-      <div class="pm-controls">
-        <div class="pm-ctrl">
-          <label>Goles</label>
-          <div class="pm-stepper" data-stat="goals">
-            <button type="button" data-action="dec">−</button>
-            <input inputmode="numeric" pattern="[0-9]*" value="${clampStatValue(d.goals)}" data-field="goals">
-            <button type="button" data-action="inc">+</button>
-          </div>
-        </div>
-
-        <div class="pm-ctrl">
-          <label>Asist.</label>
-          <div class="pm-stepper" data-stat="assists">
-            <button type="button" data-action="dec">−</button>
-            <input inputmode="numeric" pattern="[0-9]*" value="${clampStatValue(d.assists)}" data-field="assists">
-            <button type="button" data-action="inc">+</button>
-          </div>
-        </div>
-
-        <div class="pm-ctrl">
-          <label>Tarjetas</label>
-          <div class="pm-toggle">
-            <button type="button" class="pm-yellow ${d.yc ? 'is-on' : ''}" data-toggle="yc">🟨</button>
-            <button type="button" class="${d.rc ? 'is-on' : ''}" data-toggle="rc">🟥</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
-  }).join('')}</div>`;
-}
-
-function openPostMatchModal(matchId) {
-  if (!isAdmin()) {
-    showToast('Solo admin', 'error');
-    return;
-  }
-  const match = getMatches().find((m) => m.id === matchId);
-  if (!match) {
-    showToast('Partido no encontrado', 'error');
-    return;
-  }
-  state.postMatchEditor.open = true;
-  state.postMatchEditor.matchId = matchId;
-  const cachedDraft = state.postMatchEditor.draftsByMatch?.[matchId];
-  state.postMatchEditor.playerStatsDraft = cachedDraft
-    ? JSON.parse(JSON.stringify(cachedDraft))
-    : buildPlayerStatsDraftFromCurrentPlayers();
-  if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
-  state.postMatchEditor.draftsByMatch[matchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
-  state.postMatchEditor.ui = { q: '', onlyEdited: false };
-
-  let homeVal = '';
-  let awayVal = '';
-  const [homeGoals, awayGoals] = getMatchResultTuple(match);
-  if (homeGoals != null && awayGoals != null) {
-    homeVal = homeGoals;
-    awayVal = awayGoals;
-  }
-
-  if ($('postMatchTitle')) $('postMatchTitle').textContent = `Post-partido · ${match.rival}`;
-  if ($('postResultHome')) $('postResultHome').value = homeVal;
-  if ($('postResultAway')) $('postResultAway').value = awayVal;
-  if ($('postPlayersSearch')) $('postPlayersSearch').value = '';
-  if ($('postFilterEditedBtn')) $('postFilterEditedBtn').textContent = 'Solo editados: NO';
-
-  renderPostMatchPlayersList();
-  if (!getPlayers().length && $('postPlayersList')) {
-    $('postPlayersList').innerHTML = "<p class='muted'>No hay jugadores cargados</p>";
-  }
-
-  const dlg = $('postMatchModal');
-  dlg?.showModal();
-  requestAnimationFrame(() => {
-    try { dlg.scrollTop = 0; } catch {}
-    try { $('postPlayersList').scrollTop = 0; } catch {}
-  });
-}
-
-async function savePostMatchModal() {
-  if (!isAdmin()) {
-    showToast('Solo admin', 'error');
-    return;
-  }
-  const matchId = state.postMatchEditor.matchId;
-  const result_home = parseInt($('postResultHome').value, 10);
-  const result_away = parseInt($('postResultAway').value, 10);
-
-  if (Number.isNaN(result_home) || Number.isNaN(result_away) || result_home < 0 || result_away < 0) {
-    showToast('Resultado inválido', 'error');
-    return;
-  }
-
-  const payload = { [MATCH_RESULT_COLS.home]: result_home, [MATCH_RESULT_COLS.away]: result_away };
-  console.log('[post-match] saving match result', { matchId, payload });
-  const { error: matchError } = await supabaseClient
-    .from('matches')
-    .update(payload)
-    .eq('id', matchId);
-  if (matchError) {
-    console.error('[post-match] match update error', { matchId, payload, error: matchError });
-    showToast(matchError.message || 'Error guardando resultado', 'error');
-    return;
-  }
-
-  clearMatchResultOverride(matchId);
-  const idx = state.data.matches.findIndex((m) => m.id === matchId);
-  if (idx >= 0) {
-    state.data.matches[idx] = mapMatchRow({ ...state.data.matches[idx], ...payload });
-  }
-  await refreshPostMatchState();
-  renderHome();
-
-  const updates = Object.entries(state.postMatchEditor.playerStatsDraft).map(([playerId, d]) => (
-    supabaseClient.from('players').update({ goals: Number(d.goals), assists: Number(d.assists), yc: Number(d.yc), rc: Number(d.rc), mvps: Number(d.mvps) }).eq('id', playerId)
-  ));
-  console.log('[post-match] saving player stats', { matchId, players: updates.length });
-  const results = await Promise.all(updates);
-  const failed = results.find((r) => r.error);
-  if (failed?.error) {
-    console.error('[post-match] player stats update error', { matchId, error: failed.error });
-    showToast(failed.error.message || 'Error guardando stats', 'error');
-    return;
-  }
-
-  if (state.postMatchEditor.draftsByMatch) delete state.postMatchEditor.draftsByMatch[matchId];
-  $('postMatchModal').close();
-  await hydrateSessionData();
-  renderAll();
-  showToast('Post-partido actualizado', 'success');
-}
-
 function openAdminLineupForMatch(matchId) {
   if (!isAdmin()) return showToast('Solo admin', 'error');
   if (!isUuid(matchId)) return showToast('Este partido no es UUID', 'error');
@@ -2089,7 +2368,10 @@ function openMatchModal(matchId) {
   const adminZone = $('modalAdminEdit');
   const adminMode = isAdmin();
   adminZone.classList.toggle('hidden', !adminMode);
-  $('openPostMatchFromModalBtn').onclick = () => openPostMatchModal(m.id);
+  $('openLineupEditorFromModalBtn').classList.toggle('hidden', !adminMode);
+  $('openLineupEditorFromModalBtn').textContent = 'Editar alineación';
+  $('openPostMatchFromModalBtn').textContent = 'Abrir acta';
+  $('openPostMatchFromModalBtn').onclick = () => openAdminActaForMatch(m.id);
   $('openLineupEditorFromModalBtn').onclick = () => openAdminLineupForMatch(m.id);
 
   $('matchModal').showModal();
@@ -2126,7 +2408,10 @@ async function hydrateSessionData() {
   await refreshPostMatchState();
   state.selectedMatchId = state.selectedMatchId || getUpcomingMatch()?.id || getMatches()[0]?.id;
   await loadConvocatoriaData(state.selectedMatchId);
-  await loadMvpData(getMatches().find((m) => isUuid(m.id))?.id || null);
+  const mvpDefaultMatch = isUuid(getUpcomingMatch()?.id)
+    ? getUpcomingMatch()
+    : getMatches().find((m) => isUuid(m.id));
+  await loadMvpData(state.mvp.selectedMatchId || mvpDefaultMatch?.id || null);
   const lineupMatchId = getMatches().find((m) => isUuid(m.id))?.id || null;
   if (lineupMatchId) hydrateLineupEditor(lineupMatchId);
 }
@@ -2325,15 +2610,6 @@ function bindEvents() {
       openMatchModal(btn.dataset.id);
     }
 
-    if (btn.dataset.action === 'open-post-match') {
-      openPostMatchModal(btn.dataset.id);
-      return;
-    }
-
-    if (btn.dataset.action === 'admin-open-postmatch') {
-      openPostMatchModal(btn.dataset.id);
-      return;
-    }
   });
 
   $('mvpMatchSelector').addEventListener('change', async (e) => {
@@ -2370,175 +2646,7 @@ function bindEvents() {
     renderHome();
   });
 
-  document.addEventListener('submit', (e) => {
-    if (e.target?.id === 'resultForm') {
-      e.preventDefault();
-      const id = $('adminMatchSelector')?.value;
-      const raw = $('adminResult')?.value?.trim() || '-';
-      if (isUuid(id) && supabaseClient && isAdmin()) {
-        const parsed = parseResult(raw);
-        if (!parsed) {
-          showToast('Resultado inválido', 'error');
-          return;
-        }
-        const [homeGoals, awayGoals] = parsed;
-        supabaseClient.from('matches').update({ [MATCH_RESULT_COLS.home]: homeGoals, [MATCH_RESULT_COLS.away]: awayGoals }).eq('id', id)
-          .then(async ({ error }) => {
-            if (error) {
-              showToast(error.message || 'Error guardando resultado', 'error');
-              return;
-            }
-            clearMatchResultOverride(id);
-            await hydrateSessionData();
-            renderAll();
-            showToast('Resultado guardado', 'success');
-          });
-        return;
-      }
-      const o = readJSON('matchResultsOverride', {});
-      o[id] = raw;
-      writeJSON('matchResultsOverride', o);
-      renderAll();
-      showToast('Resultado guardado');
-    }
-    if (e.target?.id === 'playerStatsForm') {
-      e.preventDefault();
-      const id = $('adminPlayerSelector')?.value;
-      const nextStats = {
-        goles: Number($('sGoles')?.value || 0),
-        asistencias: Number($('sAsist')?.value || 0),
-        amarillas: Number($('sAma')?.value || 0),
-        rojas: Number($('sRojas')?.value || 0),
-        mvps: Number($('sMvps')?.value || 0)
-      };
-
-      if (isUuid(id) && supabaseClient && isAdmin()) {
-        supabaseClient
-          .from('players')
-          .update({ goals: nextStats.goles, assists: nextStats.asistencias, yc: nextStats.amarillas, rc: nextStats.rojas, mvps: nextStats.mvps })
-          .eq('id', id)
-          .then(async ({ error }) => {
-            if (error) {
-              showToast(error.message || 'Error guardando stats', 'error');
-              return;
-            }
-            clearPlayerStatsOverride(id);
-            await hydrateSessionData();
-            renderAll();
-            showToast('Stats actualizadas', 'success');
-          });
-        return;
-      }
-
-      const o = readJSON('playerStatsOverride', {});
-      o[id] = nextStats;
-      writeJSON('playerStatsOverride', o);
-      renderAll();
-      showToast('Stats actualizadas');
-    }
-  });
-
-  document.addEventListener('change', (e) => {
-    if (e.target?.id !== 'adminPlayerSelector') return;
-    const p = getPlayers().find((x) => x.id === e.target.value);
-    if (!p) return;
-    if ($('sGoles')) $('sGoles').value = p.stats.goles;
-    if ($('sAsist')) $('sAsist').value = p.stats.asistencias;
-    if ($('sAma')) $('sAma').value = p.stats.amarillas;
-    if ($('sRojas')) $('sRojas').value = p.stats.rojas;
-    if ($('sMvps')) $('sMvps').value = p.stats.mvps;
-  });
-
   $('closeModalBtn')?.addEventListener('click', () => $('matchModal')?.close());
-  $('savePostMatchBtn')?.addEventListener('click', savePostMatchModal);
-  $('closePostMatchBtn')?.addEventListener('click', () => $('postMatchModal')?.close());
-  $('postPlayersSearch')?.addEventListener('input', (e) => {
-    if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
-    state.postMatchEditor.ui.q = e.target.value || '';
-    renderPostMatchPlayersList();
-  });
-
-  $('postFilterEditedBtn')?.addEventListener('click', () => {
-    if (!state.postMatchEditor.ui) state.postMatchEditor.ui = { q: '', onlyEdited: false };
-    state.postMatchEditor.ui.onlyEdited = !state.postMatchEditor.ui.onlyEdited;
-    $('postFilterEditedBtn').textContent = `Solo editados: ${state.postMatchEditor.ui.onlyEdited ? 'SÍ' : 'NO'}`;
-    renderPostMatchPlayersList();
-  });
-
-  $('postResetDraftBtn')?.addEventListener('click', () => {
-    state.postMatchEditor.playerStatsDraft = buildPlayerStatsDraftFromCurrentPlayers();
-    const activeMatchId = state.postMatchEditor.matchId;
-    if (activeMatchId) {
-      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
-      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
-    }
-    renderPostMatchPlayersList();
-  });
-
-  function syncPostEditedBadge(card, draft) {
-    const badge = card?.querySelector('.pm-edited');
-    if (badge) badge.style.display = isDraftEdited(draft) ? 'inline-flex' : 'none';
-  }
-
-  $('postPlayersList')?.addEventListener('input', (e) => {
-    const input = e.target.closest('input[data-field]');
-    if (!input) return;
-    const card = input.closest('[data-player-id]');
-    const pid = card?.dataset.playerId;
-    const key = input.dataset.field;
-    if (!pid || !key) return;
-    const draft = ensureDraftForPlayer(pid);
-    draft[key] = clampStatValue(parseInt(input.value, 10));
-    input.value = String(draft[key]);
-    const activeMatchId = state.postMatchEditor.matchId;
-    if (activeMatchId) {
-      if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
-      state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
-    }
-    syncPostEditedBadge(card, draft);
-  });
-
-  $('postPlayersList')?.addEventListener('click', (e) => {
-    const card = e.target.closest('[data-player-id]');
-    if (!card) return;
-    const pid = card.dataset.playerId;
-    if (!pid) return;
-    const draft = ensureDraftForPlayer(pid);
-
-    const stepBtn = e.target.closest('button[data-action]');
-    if (stepBtn) {
-      const stepper = stepBtn.closest('.pm-stepper');
-      const stat = stepper?.dataset.stat;
-      const action = stepBtn.dataset.action;
-      if (!stat || !['goals', 'assists'].includes(stat)) return;
-      const delta = action === 'inc' ? 1 : -1;
-      draft[stat] = clampStatValue(Number(draft[stat] || 0) + delta);
-      const input = stepper.querySelector(`input[data-field="${stat}"]`);
-      if (input) input.value = String(draft[stat]);
-      const activeMatchId = state.postMatchEditor.matchId;
-      if (activeMatchId) {
-        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
-        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
-      }
-      syncPostEditedBadge(card, draft);
-      return;
-    }
-
-    const toggleBtn = e.target.closest('button[data-toggle]');
-    if (toggleBtn) {
-      const key = toggleBtn.dataset.toggle;
-      if (!['yc', 'rc'].includes(key)) return;
-      draft[key] = draft[key] ? 0 : 1;
-      toggleBtn.classList.toggle('is-on', Boolean(draft[key]));
-      const activeMatchId = state.postMatchEditor.matchId;
-      if (activeMatchId) {
-        if (!state.postMatchEditor.draftsByMatch) state.postMatchEditor.draftsByMatch = {};
-        state.postMatchEditor.draftsByMatch[activeMatchId] = JSON.parse(JSON.stringify(state.postMatchEditor.playerStatsDraft));
-      }
-      syncPostEditedBadge(card, draft);
-    }
-  });
-
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleAutoRefreshOnForeground('visibilitychange');
