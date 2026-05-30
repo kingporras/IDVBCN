@@ -46,7 +46,6 @@
 
         <article class="card home-cta-card">
           <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
-          <button id="homeRefreshBtn" class="btn btn-secondary home-cta" type="button" aria-label="Actualizar datos de Home">Actualizar datos</button>
         </article>
 
         <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
@@ -66,10 +65,6 @@
           <ol id="topMvpList"></ol>
         </article>
 
-        <article id="adminPendingCard" class="card card--accent hidden" style="--accent-color: var(--dorado)">
-          <h2 class="section-title">Post-partido pendiente</h2>
-          <ul id="adminPendingList" class="list"></ul>
-        </article>
       </section>
 
       <section class="view" data-view="convocatoria">
@@ -90,7 +85,6 @@
       <section class="view" data-view="calendario">
         <article class="card card--accent" style="--accent-color: #7fb8ff">
           <h2 class="section-title">Calendario (Fútbol 7)</h2>
-          <p class="muted">Resultados: actualizar cada jueves después del partido.</p>
           <ul id="calendarList" class="list"></ul>
         </article>
       </section>
@@ -120,7 +114,7 @@
         </article>
         <article class="card card--accent" style="--accent-color: #ffd76f">
           <h2 class="section-title">Ranking total MVP</h2>
-          <ol id="mvpRankingList"></ol>
+          <div id="mvpRankingList" class="mvp-ranking"></div>
         </article>
       </section>
 
@@ -152,24 +146,6 @@
         <button id="openPostMatchFromModalBtn" type="button" class="btn btn-primary">Actualizar ahora</button>
       </div>
       <button id="closeModalBtn" class="btn btn-secondary">Cerrar</button>
-    </article>
-  </dialog>
-
-  <dialog id="postMatchModal">
-    <article class="card">
-      <h3 id="postMatchTitle">Post-partido</h3>
-      <label>Resultado local</label><input id="postResultHome" class="input" type="number" min="0" />
-      <label>Resultado rival</label><input id="postResultAway" class="input" type="number" min="0" />
-      <div class="pm-toolbar">
-        <input id="postPlayersSearch" type="text" placeholder="Buscar jugador…" />
-        <button id="postFilterEditedBtn" type="button" class="btn btn-secondary">Solo editados: NO</button>
-        <button id="postResetDraftBtn" type="button" class="btn btn-secondary">Reset</button>
-      </div>
-      <div id="postPlayersList"></div>
-      <div class="pm-footer-sticky">
-        <button id="savePostMatchBtn" type="button" class="btn btn-primary">Guardar post-partido</button>
-        <button id="closePostMatchBtn" type="button" class="btn btn-secondary">Cerrar</button>
-      </div>
     </article>
   </dialog>
 
