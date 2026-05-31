@@ -70,6 +70,8 @@ function formatMatchResult(match) {
 const FORMATIONS = {
   '1-2-3-1': {
     slots: ['GK', 'D1', 'D2', 'M1', 'M2', 'M3', 'F1'],
+    label: '1-2-3-1',
+    summary: 'Sistema equilibrado con tres medios para abrir campo y un punta de referencia.',
     positions: {
       GK: { x: 50, y: 88 },
       D1: { x: 35, y: 68 },
@@ -82,6 +84,8 @@ const FORMATIONS = {
   },
   '1-3-2-1': {
     slots: ['GK', 'D1', 'D2', 'D3', 'M1', 'M2', 'F1'],
+    label: '1-3-2-1',
+    summary: 'Estructura sólida para salir con calma desde atrás y proteger el centro.',
     positions: {
       GK: { x: 50, y: 88 },
       D1: { x: 25, y: 68 },
@@ -91,6 +95,142 @@ const FORMATIONS = {
       M2: { x: 62, y: 42 },
       F1: { x: 50, y: 18 }
     }
+  },
+  '1-2-2-2': {
+    slots: ['GK', 'D1', 'D2', 'M1', 'M2', 'F1', 'F2'],
+    label: '1-2-2-2',
+    summary: 'Doble punta para presionar arriba y atacar con apoyos cercanos.',
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 34, y: 70 },
+      D2: { x: 66, y: 70 },
+      M1: { x: 38, y: 48 },
+      M2: { x: 62, y: 48 },
+      F1: { x: 38, y: 22 },
+      F2: { x: 62, y: 22 }
+    }
+  },
+  '1-3-1-2': {
+    slots: ['GK', 'D1', 'D2', 'D3', 'M1', 'F1', 'F2'],
+    label: '1-3-1-2',
+    summary: 'Tres atrás, un medio responsable y dos puntas para alternar apoyo y ruptura.',
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 24, y: 70 },
+      D2: { x: 50, y: 66 },
+      D3: { x: 76, y: 70 },
+      M1: { x: 50, y: 47 },
+      F1: { x: 38, y: 22 },
+      F2: { x: 62, y: 22 }
+    }
+  },
+  '1-1-3-2': {
+    slots: ['GK', 'D1', 'M1', 'M2', 'M3', 'F1', 'F2'],
+    label: '1-1-3-2',
+    summary: 'Muy ofensiva: un cierre, tres medios y dos puntas para dominar campo rival.',
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 50, y: 70 },
+      M1: { x: 25, y: 48 },
+      M2: { x: 50, y: 44 },
+      M3: { x: 75, y: 48 },
+      F1: { x: 38, y: 22 },
+      F2: { x: 62, y: 22 }
+    }
+  },
+  '1-2-1-3': {
+    slots: ['GK', 'D1', 'D2', 'M1', 'F1', 'F2', 'F3'],
+    label: '1-2-1-3',
+    summary: 'Plan agresivo con tres arriba para remontar, apretar o castigar defensas lentas.',
+    positions: {
+      GK: { x: 50, y: 88 },
+      D1: { x: 35, y: 70 },
+      D2: { x: 65, y: 70 },
+      M1: { x: 50, y: 48 },
+      F1: { x: 25, y: 24 },
+      F2: { x: 50, y: 18 },
+      F3: { x: 75, y: 24 }
+    }
+  }
+};
+
+const FORMATION_TACTICS = {
+  default: {
+    label: 'Plan general',
+    summary: 'Sin alineación publicada todavía. Mantener el equipo junto y decidir rápido con balón.',
+    tips: [
+      'Cerrar por dentro primero y obligar al rival a jugar por fuera.',
+      'Primer pase seguro tras robo: si no hay ventaja, reiniciar.',
+      'Hablar mucho en cambios de marca y coberturas.'
+    ],
+    strengths: ['Orden', 'Comunicación', 'Transiciones simples'],
+    risks: ['Partirse en dos', 'Perder marcas en segunda jugada']
+  },
+  '1-2-3-1': {
+    label: 'Equilibrio y amplitud',
+    summary: 'Tres medios para ocupar todo el ancho y un punta fijando centrales.',
+    tips: [
+      'Abrir campo con los medios exteriores y buscar al punta rápido.',
+      'Los dos defensas deben escalonarse para evitar contras.',
+      'El medio centro debe dar siempre una línea de pase.'
+    ],
+    strengths: ['Amplitud', 'Pase interior', 'Llegada desde segunda línea'],
+    risks: ['Espalda de los medios', 'Defensas expuestos si se pierde por dentro']
+  },
+  '1-3-2-1': {
+    label: 'Salida limpia',
+    summary: 'Tres atrás para proteger mejor y progresar con paciencia.',
+    tips: [
+      'Salir con calma desde tres atrás y no partir el equipo.',
+      'Los dos medios deben ofrecerse entre líneas.',
+      'Cuando perdamos balón, cerrar por dentro primero.'
+    ],
+    strengths: ['Seguridad atrás', 'Coberturas', 'Control de ritmo'],
+    risks: ['Punta aislado', 'Poca amplitud si los defensas no suben']
+  },
+  '1-2-2-2': {
+    label: 'Presión con doble punta',
+    summary: 'Dos puntas para incomodar salida rival y atacar con más presencia en área.',
+    tips: [
+      'Dos puntas arriba para presionar salida rival.',
+      'Los dos medios deben guardar equilibrio y no irse los dos a la vez.',
+      'Buscar paredes rápidas por dentro.'
+    ],
+    strengths: ['Presión alta', 'Remate', 'Apoyos cercanos'],
+    risks: ['Bandas libres', 'Medios superados si saltan a la vez']
+  },
+  '1-3-1-2': {
+    label: 'Bloque y dos referencias',
+    summary: 'Tres defensas, un medio clave y dos puntas alternando apoyo y ruptura.',
+    tips: [
+      'Bloque sólido atrás, un medio con mucha responsabilidad.',
+      'Los puntas deben alternar apoyo y ruptura.',
+      'No perder el centro: el medio debe estar siempre bien perfilado.'
+    ],
+    strengths: ['Centro protegido', 'Dos amenazas arriba', 'Coberturas'],
+    risks: ['Medio solo', 'Ataques previsibles si no se abren apoyos']
+  },
+  '1-1-3-2': {
+    label: 'Dominio ofensivo',
+    summary: 'Mucho peso en campo rival, ideal para presionar y atacar tras robo.',
+    tips: [
+      'El cierre no debe dividirse: manda y temporiza.',
+      'Los tres medios tienen que alternar amplitud y apoyo interior.',
+      'Tras pérdida, falta táctica o repliegue inmediato.'
+    ],
+    strengths: ['Superioridad arriba', 'Segundas jugadas', 'Presión'],
+    risks: ['Espalda del cierre', 'Contras si los medios no vuelven']
+  },
+  '1-2-1-3': {
+    label: 'Ataque total',
+    summary: 'Tres atacantes para estirar al rival; útil si toca remontar o apretar.',
+    tips: [
+      'El medio debe girar rápido el juego y no conducir de más.',
+      'Los tres puntas deben ocupar carriles distintos.',
+      'Si perdemos balón, el punta central tapa pase interior.'
+    ],
+    strengths: ['Amenaza constante', 'Amplitud alta', 'Mucho remate'],
+    risks: ['Equipo largo', 'Defensas en igualdad si no hay presión']
   }
 };
 
@@ -367,10 +507,14 @@ function isMissingActaSchemaError(error) {
   const code = String(error?.code || '');
   const message = String(error?.message || '').toLowerCase();
   return ['42P01', '42703', '42883', 'PGRST202', 'PGRST205'].includes(code)
-    || message.includes('match_events')
-    || message.includes('match_reports')
-    || message.includes('save_match_acta')
-    || message.includes('could not find the function');
+    || message.includes('could not find the function')
+    || message.includes('could not find the table')
+    || (message.includes('schema cache') && (
+      message.includes('match_events')
+      || message.includes('match_reports')
+      || message.includes('save_match_acta')
+    ))
+    || (message.includes('relation') && message.includes('does not exist'));
 }
 
 function resetActaEditorForMatch(match) {
@@ -547,6 +691,9 @@ function buildActaEventsPayload() {
     if (scorerType === 'player' && !isUuid(playerId)) {
       throw new Error(`Falta goleador en el Gol ${index + 1}`);
     }
+    if (isUuid(playerId) && isUuid(row.assistId) && playerId === row.assistId) {
+      throw new Error(`El Gol ${index + 1} no puede tener el mismo jugador como goleador y asistente`);
+    }
     events.push({
       event_type: 'goal',
       team: 'inter',
@@ -588,6 +735,12 @@ async function saveActa() {
   }
 
   const { match, homeGoals, awayGoals, events } = payload;
+  const confirmMessage = [
+    `Publicar acta de ${formatMatchShort(match)} con resultado ${homeGoals}-${awayGoals}?`,
+    'Esto actualizará calendario, club y estadísticas de jugadores.'
+  ].join('\n');
+  if (!window.confirm(confirmMessage)) return;
+
   const button = $('saveActaBtn');
   const previousLabel = button?.textContent;
   if (button) {
@@ -666,10 +819,35 @@ async function refreshPostMatchState() {
   state.pendingMatches = (pendingRows || []).map(mapMatchRow);
 }
 
+function getSlotRole(slot) {
+  const value = String(slot || '').charAt(0).toUpperCase();
+  if (value === 'G') return 'GK';
+  if (value === 'D') return 'D';
+  if (value === 'M') return 'M';
+  if (value === 'F') return 'F';
+  return 'M';
+}
+
 function detectFormation(assignments = {}) {
-  const slots = Object.keys(assignments);
-  if (slots.includes('D3')) return '1-3-2-1';
-  return '1-2-3-1';
+  const assignedSlots = Object.keys(assignments || {}).filter((slot) => assignments[slot]);
+  if (!assignedSlots.length) return '1-2-3-1';
+
+  const assignedSet = new Set(assignedSlots);
+  const candidates = Object.entries(FORMATIONS)
+    .map(([formation, config]) => {
+      const formationSet = new Set(config.slots);
+      const included = assignedSlots.filter((slot) => formationSet.has(slot)).length;
+      const extras = assignedSlots.filter((slot) => !formationSet.has(slot)).length;
+      const missing = config.slots.filter((slot) => !assignedSet.has(slot)).length;
+      const roleFit = assignedSlots.filter((slot) => {
+        const role = getSlotRole(slot);
+        return config.slots.some((candidate) => getSlotRole(candidate) === role);
+      }).length;
+      return { formation, score: included * 6 + roleFit * 2 - extras * 8 - missing };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.formation || '1-2-3-1';
 }
 
 function getLineupAssignments(matchId) {
@@ -678,6 +856,48 @@ function getLineupAssignments(matchId) {
 
 function playerNameById(playerId) {
   return getPlayers().find((p) => p.id === playerId)?.name || 'Jugador';
+}
+
+function getFormationTactic(formation) {
+  return FORMATION_TACTICS[formation] || FORMATION_TACTICS.default;
+}
+
+function getFormationForMatch(matchId) {
+  const assignments = getLineupAssignments(matchId);
+  return Object.keys(assignments || {}).length ? detectFormation(assignments) : null;
+}
+
+function renderTacticalInsight(formation, options = {}) {
+  const config = formation ? FORMATIONS[formation] : null;
+  const tactic = getFormationTactic(formation);
+  const compact = Boolean(options.compact);
+  const title = options.title || 'Consejo táctico';
+  const formationLabel = config?.label || 'Sin formación';
+  const tips = tactic.tips.slice(0, compact ? 1 : 3);
+  return `
+    <div class="tactical-card ${compact ? 'tactical-card--compact' : ''}">
+      <div class="tactical-card__head">
+        <span class="tactical-card__eyebrow">${escapeHtml(title)}</span>
+        <strong>${escapeHtml(formationLabel)}</strong>
+      </div>
+      <p>${escapeHtml(tactic.summary)}</p>
+      <ul>
+        ${tips.map((tip) => `<li>${escapeHtml(tip)}</li>`).join('')}
+      </ul>
+      ${compact ? '' : `
+        <div class="tactical-card__grid">
+          <section>
+            <span>Fortalezas</span>
+            <p>${tactic.strengths.map(escapeHtml).join(' · ')}</p>
+          </section>
+          <section>
+            <span>Riesgos</span>
+            <p>${tactic.risks.map(escapeHtml).join(' · ')}</p>
+          </section>
+        </div>
+      `}
+    </div>
+  `;
 }
 
 function renderLineupField(container, assignments, formation, options = {}) {
@@ -725,7 +945,7 @@ function renderLineupForMatch(containerId, messageId, matchId, options = {}) {
   }
 
   const formation = detectFormation(assignments);
-  message.textContent = `Formación ${formation}`;
+  message.textContent = `Formación ${FORMATIONS[formation]?.label || formation}`;
   container.classList.remove('hidden');
   renderLineupField(container, assignments, formation);
 }
@@ -760,12 +980,52 @@ function extractInterScorers(match) {
     .filter(Boolean);
 }
 
+function getTeamInitials(teamName) {
+  const normalized = String(teamName || 'Rival').trim();
+  const words = normalized
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return 'RV';
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0] || ''}${words[1][0] || ''}`.toUpperCase();
+}
+
+function hashString(value) {
+  return String(value || '').split('').reduce((acc, char) => ((acc << 5) - acc + char.charCodeAt(0)) | 0, 0);
+}
+
 function getTeamLogo(teamName) {
   const normalized = String(teamName || 'Rival').trim();
   const lower = normalized.toLowerCase();
   const isInter = lower.includes('inter') || lower === 'inter de verdun';
   if (isInter) return 'escudo.png';
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(normalized)}&background=random&color=fff`;
+  const initials = getTeamInitials(normalized);
+  const palettes = [
+    ['#163f65', '#4da3ff'],
+    ['#0f4c5c', '#5ed3b5'],
+    ['#4c3f91', '#9b8cff'],
+    ['#5a3d12', '#d4af37'],
+    ['#7a2443', '#ff7aaa'],
+    ['#204b2d', '#6ed08d']
+  ];
+  const palette = palettes[Math.abs(hashString(normalized)) % palettes.length];
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="${palette[0]}"/>
+          <stop offset="100%" stop-color="${palette[1]}"/>
+        </linearGradient>
+      </defs>
+      <rect width="160" height="160" rx="80" fill="url(#g)"/>
+      <circle cx="80" cy="80" r="68" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="6"/>
+      <text x="80" y="94" text-anchor="middle" font-family="Arial, sans-serif" font-size="52" font-weight="800" fill="#fff">${initials}</text>
+    </svg>
+  `.trim();
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
 function formatMatchLabel(match) {
@@ -780,11 +1040,73 @@ function formatMatchShort(match) {
   return `${date} · ${match.rival}`;
 }
 
+function getMatchDisplay(match) {
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  const hasResult = homeGoals != null && awayGoals != null;
+  const isFuture = match ? new Date(match.date) >= new Date() : false;
+  const localTeam = match?.home ? 'Inter' : (match?.rival || 'Rival');
+  const awayTeam = match?.home ? (match?.rival || 'Rival') : 'Inter';
+  return {
+    localTeam,
+    awayTeam,
+    homeGoals,
+    awayGoals,
+    hasResult,
+    status: hasResult ? 'Finalizado' : (isFuture ? 'Próximo' : 'Sin acta'),
+    score: hasResult ? `${homeGoals}-${awayGoals}` : 'vs'
+  };
+}
+
+function renderTeamIdentity(teamName, extraClass = '') {
+  return `
+    <div class="team-identity ${extraClass}">
+      <img src="${getTeamLogo(teamName)}" alt="Escudo ${escapeHtml(teamName)}" />
+      <strong>${escapeHtml(teamName)}</strong>
+    </div>
+  `;
+}
+
+function renderMatchdayCard(match, options = {}) {
+  if (!match) {
+    return `
+      <div class="matchday-card matchday-card--empty">
+        <p class="muted">Cuando haya fecha confirmada la verás aquí.</p>
+      </div>
+    `;
+  }
+  const display = getMatchDisplay(match);
+  const compact = Boolean(options.compact);
+  return `
+    <div class="matchday-card ${compact ? 'matchday-card--compact' : ''}">
+      <div class="matchday-card__top">
+        <span>${escapeHtml(display.status)}</span>
+        <small>${escapeHtml(match.home ? 'Casa' : 'Fuera')}</small>
+      </div>
+      <div class="matchday-card__teams">
+        ${renderTeamIdentity(display.localTeam, 'is-local')}
+        <strong class="matchday-card__score">${escapeHtml(display.score)}</strong>
+        ${renderTeamIdentity(display.awayTeam, 'is-away')}
+      </div>
+      <div class="matchday-card__meta">
+        <span>${escapeHtml(formatDate(match.date))}</span>
+        <span>${escapeHtml(match.venue || 'Velòdrom F7')}</span>
+      </div>
+    </div>
+  `;
+}
+
 function statusLabel(status) {
   if (status === 'yes') return '✅ Confirmado';
   if (status === 'no') return '❌ Baja';
   if (status === 'maybe') return '⏳ Dudoso';
   return '⏳ Pendiente';
+}
+
+function statusClass(status) {
+  if (status === 'yes') return 'is-confirmed';
+  if (status === 'no') return 'is-out';
+  if (status === 'maybe') return 'is-maybe';
+  return 'is-pending';
 }
 
 function normalizeName(value) {
@@ -1128,13 +1450,15 @@ function renderHome() {
   const players = getPlayers();
   if (!players.length) {
     renderTeamStatsBlock();
-    $('topMvpList').innerHTML = '<li>Sin datos de MVP todavía.</li>';
+    $('topMvpList').innerHTML = '<li class="empty-state">Sin datos de MVP todavía.</li>';
     $('lineupHomeMessage').textContent = 'Alineación aún no publicada';
     if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = 'Se mostrará aquí cuando el cuerpo técnico la publique.';
     $('lineupFieldHome').classList.add('hidden');
     $('lineupFieldHome').innerHTML = '';
     $('nextMatchText').textContent = 'Sin partido próximo';
     if ($('nextMatchMeta')) $('nextMatchMeta').textContent = 'Cuando haya fecha confirmada la verás aquí.';
+    if ($('homeMatchCard')) $('homeMatchCard').innerHTML = renderMatchdayCard(null);
+    if ($('homeTacticalPlan')) $('homeTacticalPlan').innerHTML = renderTacticalInsight(null, { compact: true, title: 'Plan de partido' });
     $('goConfirmBtn').textContent = 'Ir a Convocatoria';
     return;
   }
@@ -1149,6 +1473,7 @@ function renderHome() {
   renderTeamStatsBlock();
   maybeLoadTeamAttendanceTotals();
 
+  if ($('homeMatchCard')) $('homeMatchCard').innerHTML = renderMatchdayCard(nextMatch);
   $('nextMatchText').textContent = nextMatch ? `vs ${nextMatch.rival}` : 'Sin partido próximo';
   if ($('nextMatchMeta')) {
     $('nextMatchMeta').textContent = nextMatch
@@ -1165,9 +1490,18 @@ function renderHome() {
     : (meStatus === 'yes' ? 'Asistencia confirmada · Cambiar' : 'Confirmar asistencia');
 
   if ($('homePendingHint')) $('homePendingHint').textContent = '';
-  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p) => `<li>${p.name} <span class="badge">${p.totalMvp}</span></li>`).join('') || '<li>Sin votos aún.</li>';
+  $('topMvpList').innerHTML = ranking.slice(0, 5).map((p, index) => `
+    <li class="home-mvp-row">
+      <span>${index + 1}</span>
+      <strong>${escapeHtml(p.name)}</strong>
+      <em>${p.totalMvp}</em>
+    </li>
+  `).join('') || '<li class="empty-state">Sin votos aún.</li>';
   if ($('lineupHomeSubmessage')) $('lineupHomeSubmessage').textContent = nextMatch ? 'Solo lectura · publicación del cuerpo técnico.' : '';
   renderLineupForMatch('lineupFieldHome', 'lineupHomeMessage', nextMatch?.id || null, { emptyMessage: 'Alineación aún no publicada' });
+  if ($('homeTacticalPlan')) {
+    $('homeTacticalPlan').innerHTML = renderTacticalInsight(getFormationForMatch(nextMatch?.id), { compact: true, title: 'Plan de partido' });
+  }
 }
 
 function renderConvocatoria() {
@@ -1224,6 +1558,7 @@ function renderConvocatoria() {
 
   let confirmados = 0;
   let pendientes = 0;
+  let duda = 0;
   let bajas = 0;
 
   $('attendanceList').innerHTML = players.map((p) => {
@@ -1232,6 +1567,7 @@ function renderConvocatoria() {
 
     if (st === 'yes') confirmados += 1;
     else if (st === 'no') bajas += 1;
+    else if (st === 'maybe') duda += 1;
     else pendientes += 1;
 
     const isOwnPlayer = p.id === sessionUser?.playerId;
@@ -1241,18 +1577,26 @@ function renderConvocatoria() {
 
     const accountHint = !userId && adminMode ? '<small>sin cuenta</small>' : '';
 
-    return `<li>
-      <strong>${p.name}</strong> <span class="badge">${statusLabel(st)}</span> ${accountHint}
+    return `<li class="attendance-row ${statusClass(st)} ${isOwnPlayer ? 'is-me' : ''}">
+      <div class="attendance-row__main">
+        <span class="attendance-row__avatar">${escapeHtml(String(p.name || 'J').charAt(0).toUpperCase() || 'J')}</span>
+        <div>
+          <strong>${escapeHtml(p.name)}</strong>
+          <small>${isOwnPlayer ? 'Tu estado' : `#${p.dorsal || '-'} · ${escapeHtml(p.position || 'N/D')}`}</small>
+        </div>
+        <span class="badge attendance-status ${statusClass(st)}">${statusLabel(st)}</span>
+      </div>
+      ${accountHint}
       <div class="att-actions ${showActions ? '' : 'hidden'}">
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>✅</button>
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>⏳</button>
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>❌</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>Confirmar</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>Duda</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>Baja</button>
       </div>
     </li>`;
   }).join('');
 
   $('countConfirmados').textContent = `Confirmados: ${confirmados}`;
-  $('countPendientes').textContent = `Pendientes: ${pendientes}`;
+  $('countPendientes').textContent = `Duda: ${duda} · Pend: ${pendientes}`;
   $('countBajas').textContent = `Bajas: ${bajas}`;
 
   const debug = $('convocatoriaDebug');
@@ -1282,18 +1626,11 @@ function renderCalendario() {
   }
 
   $('calendarList').innerHTML = matches.map((m) => {
-    const [homeGoals, awayGoals] = getMatchResultTuple(m);
-    const hasResult = homeGoals != null && awayGoals != null;
-    const isFuture = new Date(m.date) >= new Date();
-    const localTeam = m.home ? 'Inter' : m.rival;
-    const awayTeam = m.home ? m.rival : 'Inter';
-    const score = hasResult ? `${homeGoals}-${awayGoals}` : (isFuture ? 'Próximo' : 'Sin acta');
+    const display = getMatchDisplay(m);
     return `
-      <li class="calendar-match ${hasResult ? 'is-final' : 'is-open'}">
+      <li class="calendar-match ${display.hasResult ? 'is-final' : 'is-open'}">
         <button type="button" class="calendar-match__button" data-action="open-match" data-id="${m.id}">
-          <span class="calendar-match__date">${formatDate(m.date)}</span>
-          <span class="calendar-match__teams">${escapeHtml(localTeam)} <strong>${score}</strong> ${escapeHtml(awayTeam)}</span>
-          <span class="calendar-match__meta">${m.home ? 'Casa' : 'Fuera'} · ${escapeHtml(m.venue || 'Velòdrom F7')}</span>
+          ${renderMatchdayCard(m, { compact: true })}
         </button>
       </li>
     `;
@@ -1574,11 +1911,29 @@ function hydrateLineupEditor(matchId, options = {}) {
 }
 
 function normalizeAssignmentsForFormation(assignments, formation) {
-  const slots = FORMATIONS[formation].slots;
+  const slots = (FORMATIONS[formation] || FORMATIONS['1-2-3-1']).slots;
   const normalized = {};
+  const usedPlayers = new Set();
+  const sourceEntries = Object.entries(assignments || {}).filter(([, playerId]) => playerId && isUuid(playerId));
+
   slots.forEach((slot) => {
-    const playerId = assignments[slot];
-    if (playerId && isUuid(playerId)) normalized[slot] = playerId;
+    const playerId = assignments?.[slot];
+    if (playerId && isUuid(playerId) && !usedPlayers.has(playerId)) {
+      normalized[slot] = playerId;
+      usedPlayers.add(playerId);
+    }
+  });
+
+  sourceEntries.forEach(([sourceSlot, playerId]) => {
+    if (usedPlayers.has(playerId)) return;
+    const sourceRole = getSlotRole(sourceSlot);
+    const targetSlot = slots.find((slot) => !normalized[slot] && getSlotRole(slot) === sourceRole)
+      || slots.find((slot) => !normalized[slot] && slot !== 'GK')
+      || slots.find((slot) => !normalized[slot]);
+    if (targetSlot) {
+      normalized[targetSlot] = playerId;
+      usedPlayers.add(playerId);
+    }
   });
   return normalized;
 }
@@ -1730,6 +2085,8 @@ function renderLineupEditor() {
     clickable: true,
     selectedSlot: state.lineupEditor.selectedSlot
   });
+  const tacticPanel = $('lineupTacticalPanel');
+  if (tacticPanel) tacticPanel.innerHTML = renderTacticalInsight(formation, { title: 'Consejos/tácticas' });
 }
 
 function renderAdmin() {
@@ -1787,14 +2144,14 @@ function renderAdmin() {
         ` : '<p class="muted">No hay partidos UUID de Supabase para crear actas.</p>'}
       </section>
 
-      <section id="lineupEditorSection" class="admin-block admin-lineup card">
+      <section id="lineupEditorSection" class="admin-block admin-lineup card card--accent" style="--accent-color: #4ecf8f">
         <h3 class="section-title">Alineación por partido</h3>
         <label for="lineupMatchSelector">Partido</label>
         <select id="lineupMatchSelector" class="input"></select>
         <div id="lineupFormationToggle" class="formation-toggle">
-          <button type="button" data-action="set-formation" data-formation="1-2-3-1">1-2-3-1</button>
-          <button type="button" data-action="set-formation" data-formation="1-3-2-1">1-3-2-1</button>
+          ${Object.keys(FORMATIONS).map((formation) => `<button type="button" data-action="set-formation" data-formation="${formation}">${formation}</button>`).join('')}
         </div>
+        <div id="lineupTacticalPanel"></div>
         <p id="lineupAdminMessage" class="lineup-message"></p>
         <div id="lineupFieldAdmin" class="lineup-field hidden"></div>
         <label for="lineupSlotSelector">Slot</label>
@@ -1806,7 +2163,7 @@ function renderAdmin() {
 
       <section class="admin-block admin-image card card--accent" style="--accent-color: var(--celeste)">
         <h3 class="section-title">Imagen convocatoria</h3>
-        <p class="muted">Se mantiene la función actual. La mejora visual grande la dejamos preparada para la siguiente pasada.</p>
+        <p class="muted">Formato 1080x1350 con escudo del club, rival, fecha, convocados y alineación si está publicada.</p>
         <select id="adminImageMatchSelector" class="input">${getMatches().filter((m) => isUuid(m.id)).map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('')}</select>
         <button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
       </section>
@@ -1968,7 +2325,47 @@ function scheduleAutoRefreshOnForeground(source = 'foreground') {
 async function refreshHomeDataManually() {
   const button = $('homeRefreshBtn');
   if (!button || button.disabled) return;
-  await refreshSessionData({ source: 'manual', showSuccessToast: true, useRefreshButton: true });
+  const previousLabel = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Actualizando...';
+
+  try {
+    await refreshSessionData({ source: 'manual', showSuccessToast: false, useRefreshButton: false });
+    await clearAppCacheAndReload();
+  } catch (error) {
+    console.error('[app-refresh] error', error);
+    showToast(error.message || 'No se pudo actualizar la app', 'error');
+    button.disabled = false;
+    button.textContent = previousLabel || 'Actualizar app';
+  }
+}
+
+async function clearAppCacheAndReload() {
+  if ('caches' in window) {
+    const keys = await caches.keys();
+    await Promise.all(keys
+      .filter((key) => key.startsWith('inter-app-cache'))
+      .map((key) => caches.delete(key)));
+  }
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.controller?.postMessage({ type: 'CLEAR_APP_CACHE' });
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map(async (registration) => {
+      try {
+        await registration.update();
+        (registration.waiting || registration.installing)?.postMessage({ type: 'SKIP_WAITING' });
+      } catch (error) {
+        console.warn('[app-refresh] service worker update failed', error);
+      }
+    }));
+  }
+
+  showToast('App actualizada. Recargando...', 'success');
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.set('app_update', Date.now().toString());
+  window.location.replace(nextUrl.toString());
 }
 
 function showToast(text, type = "info") {
@@ -2144,6 +2541,23 @@ async function generateInstagramPoster(matchId) {
     ctx.restore();
   }
 
+  ctx.save();
+  const rivalGradient = ctx.createLinearGradient(850, 82, 982, 214);
+  rivalGradient.addColorStop(0, '#163f65');
+  rivalGradient.addColorStop(1, '#4da3ff');
+  ctx.fillStyle = rivalGradient;
+  ctx.beginPath();
+  ctx.arc(914, 148, 66, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(212,175,55,.8)';
+  ctx.lineWidth = 5;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.textAlign = 'center';
+  ctx.font = '800 42px Arial';
+  ctx.fillText(getTeamInitials(opponent), 914, 163);
+  ctx.restore();
+
   ctx.fillStyle = '#10283f';
   ctx.font = '700 66px Arial';
   ctx.fillText('CONVOCATORIA', 250, 145);
@@ -2264,16 +2678,15 @@ async function generateInstagramPoster(matchId) {
   };
 
   if (lineupRows?.length) {
-    const slotCoords = {
-      GK: [704, 1084],
-      D1: [562, 986],
-      D2: [704, 974],
-      D3: [848, 986],
-      M1: [532, 868],
-      M2: [704, 850],
-      M3: [876, 868],
-      F1: [704, 748]
-    };
+    const lineupAssignments = Object.fromEntries((lineupRows || [])
+      .filter((row) => row?.position_slot && row?.player_id)
+      .map((row) => [String(row.position_slot), String(row.player_id)]));
+    const posterFormation = detectFormation(lineupAssignments);
+    const formationConfig = FORMATIONS[posterFormation] || FORMATIONS['1-2-3-1'];
+    const slotCoords = Object.fromEntries(formationConfig.slots.map((slot) => {
+      const pos = formationConfig.positions[slot] || { x: 50, y: 50 };
+      return [slot, [408 + (pos.x / 100) * 592, 666 + (pos.y / 100) * 478]];
+    }));
     const normalizedRows = lineupRows
       .filter((row) => row?.position_slot && row?.player_id)
       .sort((a, b) => String(a.position_slot).localeCompare(String(b.position_slot)));
@@ -2332,7 +2745,8 @@ function openMatchModal(matchId) {
   if (!m) return;
   const [homeGoals, awayGoals] = getMatchResultTuple(m);
   const hasResult = homeGoals != null && awayGoals != null;
-  const status = hasResult ? 'FINALIZADO' : 'PENDIENTE';
+  const isFuture = new Date(m.date) >= new Date();
+  const status = hasResult ? 'FINALIZADO' : (isFuture ? 'PRÓXIMO' : 'SIN ACTA');
   const jornada = m.jornada || m.matchday || m.round || '';
   const localTeam = m.home ? 'Inter F7' : (m.rival || 'Rival');
   const awayTeam = m.home ? (m.rival || 'Rival') : 'Inter F7';
@@ -2505,8 +2919,6 @@ function bindEvents() {
     renderConvocatoria();
     route();
   });
-
-  $('homeRefreshBtn')?.addEventListener('click', refreshHomeDataManually);
 
   $('matchSelector').addEventListener('change', async (e) => {
     state.selectedMatchId = e.target.value;
