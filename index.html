@@ -26,7 +26,7 @@
   </div>
 
   <div id="app" class="app-shell hidden">
-    <header class="topbar header-pill">
+    <header class="topbar header-pill topbar-club">
       <img src="escudo.png" alt="Escudo" class="topbar-logo" />
       <div>
         <strong>EL INTER DE VERDUN</strong>
@@ -39,13 +39,18 @@
       <section class="view" data-view="home">
         <article class="card card--accent home-hero" style="--accent-color: #6cb6ff">
           <h2 class="section-title">Próximo partido</h2>
+          <div id="homeMatchCard" class="home-matchday"></div>
           <p id="nextMatchText" class="home-hero-main"></p>
           <p id="nextMatchMeta" class="home-hero-meta"></p>
           <small id="homePendingHint"></small>
         </article>
 
         <article class="card home-cta-card">
-          <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
+          <div class="home-actions">
+            <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
+            <button id="homeRefreshBtn" type="button" class="btn btn-secondary home-update-btn">Actualizar app</button>
+          </div>
+          <small class="home-update-note">Borra cache y carga la ultima version publicada.</small>
         </article>
 
         <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
@@ -53,6 +58,10 @@
           <p id="lineupHomeMessage" class="lineup-message">Alineación aún no publicada</p>
           <small id="lineupHomeSubmessage" class="muted"></small>
           <div id="lineupFieldHome" class="lineup-field hidden"></div>
+        </article>
+
+        <article class="card card--accent home-tactical-card" style="--accent-color: var(--dorado)">
+          <div id="homeTacticalPlan"></div>
         </article>
 
         <article class="card card--accent" style="--accent-color: var(--celeste)">
@@ -90,6 +99,14 @@
       </section>
 
       <section class="view" data-view="club">
+        <article class="card club-identity-card">
+          <img src="escudo.png" alt="Escudo del Inter de Verdun" />
+          <div>
+            <span>Club</span>
+            <h2>EL INTER DE VERDUN</h2>
+            <p>Dashboard deportivo del equipo.</p>
+          </div>
+        </article>
         <article class="card card--accent" style="--accent-color: var(--celeste)">
           <h2 class="section-title">Estadísticas globales</h2>
           <div id="clubStats" class="stats-grid"></div>
@@ -122,12 +139,12 @@
     </main>
 
     <nav class="bottom-nav pill" aria-label="Navegación principal">
-      <a href="#home" data-tab="home">🏠<span>Home</span></a>
-      <a href="#convocatoria" data-tab="convocatoria">📣<span>Conv</span></a>
-      <a href="#calendario" data-tab="calendario">🗓️<span>Cal</span></a>
-      <a href="#club" data-tab="club">🛡️<span>Club</span></a>
-      <a href="#mvp" data-tab="mvp">⭐<span>MVP</span></a>
-      <a href="#admin" data-tab="admin" class="admin-tab">⚙️<span>Admin</span></a>
+      <a href="#home" data-tab="home"><span class="nav-ico" aria-hidden="true">&#8962;</span><span>Home</span></a>
+      <a href="#convocatoria" data-tab="convocatoria"><span class="nav-ico" aria-hidden="true">&#128226;</span><span>Conv</span></a>
+      <a href="#calendario" data-tab="calendario"><span class="nav-ico" aria-hidden="true">&#128197;</span><span>Cal</span></a>
+      <a href="#club" data-tab="club"><span class="nav-ico" aria-hidden="true">&#128737;</span><span>Club</span></a>
+      <a href="#mvp" data-tab="mvp"><span class="nav-ico" aria-hidden="true">&#9733;</span><span>MVP</span></a>
+      <a href="#admin" data-tab="admin" class="admin-tab"><span class="nav-ico" aria-hidden="true">&#9881;</span><span>Admin</span></a>
     </nav>
   </div>
 
