@@ -53,6 +53,11 @@
           <small class="home-update-note">Borra cache y carga la ultima version publicada.</small>
         </article>
 
+        <article class="card home-club-pulse-card">
+          <div id="homeClubPulse"></div>
+          <div id="homeAttendanceSummary" class="home-attendance-summary"></div>
+        </article>
+
         <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
           <h2 class="section-title">Alineación publicada</h2>
           <p id="lineupHomeMessage" class="lineup-message">Alineación aún no publicada</p>
@@ -62,6 +67,11 @@
 
         <article class="card card--accent home-tactical-card" style="--accent-color: var(--dorado)">
           <div id="homeTacticalPlan"></div>
+        </article>
+
+        <article class="card card--accent home-last-match-card" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Ultimo partido</h2>
+          <div id="homeLastMatch"></div>
         </article>
 
         <article class="card card--accent" style="--accent-color: var(--celeste)">
@@ -111,14 +121,26 @@
           <h2 class="section-title">Estadísticas globales</h2>
           <div id="clubStats" class="stats-grid"></div>
         </article>
+        <article class="card card--accent" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Ranking global</h2>
+          <div id="clubPointsRanking"></div>
+        </article>
         <article class="card card--accent" style="--accent-color: #4ecf8f">
           <h2 class="section-title">Plantilla</h2>
           <ul id="squadList" class="list"></ul>
         </article>
+        <article class="card card--accent" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Rivales</h2>
+          <div id="clubRivals"></div>
+        </article>
+        <article id="clubLinksCard" class="card card--accent" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Liga oficial</h2>
+          <div id="officialLeaguePanel"></div>
+        </article>
       </section>
 
       <section class="view" data-view="mvp">
-        <article class="card card--accent" style="--accent-color: var(--dorado)">
+        <article class="card card--accent mvp-vote-card" style="--accent-color: var(--dorado)">
           <h2 class="section-title">Votación MVP</h2>
           <p class="banner">🏆 El que más MVP gana premio</p>
           <label for="mvpMatchSelector">Partido</label>
@@ -163,6 +185,13 @@
         <button id="openPostMatchFromModalBtn" type="button" class="btn btn-primary">Actualizar ahora</button>
       </div>
       <button id="closeModalBtn" class="btn btn-secondary">Cerrar</button>
+    </article>
+  </dialog>
+
+  <dialog id="playerModal">
+    <article class="card player-modal-card">
+      <section id="playerModalContent"></section>
+      <button id="closePlayerModalBtn" class="btn btn-secondary">Cerrar</button>
     </article>
   </dialog>
 

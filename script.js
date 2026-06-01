@@ -29,6 +29,7 @@ const state = {
   mvp: {
     selectedMatchId: null,
     votesByPlayerForSelected: {},
+    votesByMatch: {},
     globalTotals: {},
     lastVotePayload: '-'
   },
@@ -37,6 +38,14 @@ const state = {
     attendanceStatus: 'idle',
     attendanceByPlayerId: null
   },
+  homeAttendanceSummary: {
+    matchId: null,
+    status: 'idle',
+    counts: null
+  },
+  clubMessageSeed: Date.now(),
+  matchEventsByMatch: {},
+  officialLeagueTab: 'standings',
   lineupsByMatch: {},
   lineupEditor: {
     selectedMatchId: null,
@@ -50,6 +59,22 @@ const state = {
 
 const MATCH_RESULT_COLS = { home: 'result_home', away: 'result_away' };
 const AUTO_REFRESH_COOLDOWN_MS = 45 * 1000;
+const OFFICIAL_LINKS = {
+  instagram: 'https://instagram.com/interdeverdunbcn',
+  standings: 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0',
+  calendar: 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0',
+  team: 'https://apuntamelo.com/equipo/9/26/0/653/0/3349/26489/0'
+};
+const CLUB_MESSAGES = [
+  'Juntos somos más fuertes.',
+  'Presión, intensidad y cabeza.',
+  'Defender juntos, atacar con calma.',
+  'Cada balón dividido es nuestro.',
+  'Hoy toca correr por el de al lado.',
+  'Equipo corto, líneas juntas y confianza.',
+  'Primero competir, luego jugar.',
+  'El escudo se defiende desde el primer minuto.'
+];
 let lastAutoRefreshAt = 0;
 let refreshInFlight = false;
 
@@ -383,10 +408,11 @@ async function loadData() {
   }
 
   try {
-    const [playersRes, matchesRes, lineupsRes] = await Promise.all([
+    const [playersRes, matchesRes, lineupsRes, eventsRes] = await Promise.all([
       supabaseClient.from('players').select('*').order('number', { ascending: true, nullsFirst: false }),
       supabaseClient.from('matches').select('*').order('date_time', { ascending: true }),
-      supabaseClient.from('lineups').select('match_id, player_id, position_slot')
+      supabaseClient.from('lineups').select('match_id, player_id, position_slot'),
+      supabaseClient.from('match_events').select('match_id,event_type,team,player_id,assist_player_id,own_goal,sequence')
     ]);
 
     if (playersRes.error) throw playersRes.error;
@@ -406,10 +432,24 @@ async function loadData() {
       if (!state.lineupsByMatch[matchId]) state.lineupsByMatch[matchId] = {};
       state.lineupsByMatch[matchId][String(row.position_slot)] = String(row.player_id);
     });
+
+    state.matchEventsByMatch = {};
+    if (eventsRes?.error) {
+      console.warn('[match-events] unavailable', eventsRes.error);
+    } else {
+      (eventsRes?.data || []).forEach((row) => {
+        if (!row?.match_id) return;
+        const matchId = String(row.match_id);
+        if (!state.matchEventsByMatch[matchId]) state.matchEventsByMatch[matchId] = [];
+        state.matchEventsByMatch[matchId].push(row);
+      });
+      Object.values(state.matchEventsByMatch).forEach((rows) => rows.sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0)));
+    }
   } catch (error) {
     console.error(error);
     state.data = emptyData;
     state.lineupsByMatch = {};
+    state.matchEventsByMatch = {};
     showToast(error.message || 'Error cargando datos desde Supabase', 'error');
   }
 }
@@ -980,6 +1020,183 @@ function extractInterScorers(match) {
     .filter(Boolean);
 }
 
+function getClubMessage(seed = Date.now()) {
+  const index = Math.abs(hashString(String(seed))) % CLUB_MESSAGES.length;
+  return CLUB_MESSAGES[index] || CLUB_MESSAGES[0];
+}
+
+function getLastFinishedMatch() {
+  return getMatches()
+    .filter((match) => {
+      const [homeGoals, awayGoals] = getMatchResultTuple(match);
+      return homeGoals != null && awayGoals != null;
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date))[0] || null;
+}
+
+function getMatchEvents(matchId) {
+  return state.matchEventsByMatch?.[String(matchId || '')] || [];
+}
+
+function getMatchEventSummary(match) {
+  const events = getMatchEvents(match?.id);
+  const goals = [];
+  const assists = [];
+  const cards = [];
+
+  events.forEach((event) => {
+    const type = String(event.event_type || '').toLowerCase();
+    if (type === 'goal' && String(event.team || '').toLowerCase() === 'inter') {
+      const scorer = event.own_goal
+        ? 'Propia puerta'
+        : (event.player_id ? playerNameById(event.player_id) : 'Gol de equipo');
+      const assist = event.assist_player_id ? playerNameById(event.assist_player_id) : '';
+      goals.push(assist ? `${scorer} · asist. ${assist}` : scorer);
+      if (assist) assists.push(assist);
+    }
+    if ((type === 'yellow_card' || type === 'red_card') && String(event.team || '').toLowerCase() === 'inter') {
+      const cardPlayer = event.player_id ? playerNameById(event.player_id) : 'Inter';
+      cards.push(`${type === 'red_card' ? 'Roja' : 'Amarilla'} · ${cardPlayer}`);
+    }
+  });
+
+  const fallbackGoals = !goals.length ? extractInterScorers(match) : goals;
+  return {
+    goals: fallbackGoals,
+    assists: [...new Set(assists)],
+    cards,
+    hasEvents: events.length > 0
+  };
+}
+
+function getMatchMvpLeaders(matchId) {
+  const votesByPlayer = state.mvp.votesByMatch?.[String(matchId || '')] || {};
+  const entries = Object.entries(votesByPlayer)
+    .map(([playerId, total]) => ({ playerId, total: Number(total || 0), name: playerNameById(playerId) }))
+    .filter((entry) => entry.total > 0)
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  if (!entries.length) return [];
+  const top = entries[0].total;
+  return entries.filter((entry) => entry.total === top);
+}
+
+function getRecentInterForm(limit = 5) {
+  return getMatches()
+    .filter((match) => {
+      const [homeGoals, awayGoals] = getMatchResultTuple(match);
+      return homeGoals != null && awayGoals != null;
+    })
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, limit)
+    .map((match) => {
+      const [homeGoals, awayGoals] = getMatchResultTuple(match);
+      const interGoals = match.home ? homeGoals : awayGoals;
+      const rivalGoals = match.home ? awayGoals : homeGoals;
+      return interGoals > rivalGoals ? 'G' : (interGoals === rivalGoals ? 'E' : 'P');
+    });
+}
+
+function getAttendanceCountsForNextMatch() {
+  const counts = state.homeAttendanceSummary?.counts;
+  if (!counts) return null;
+  return counts;
+}
+
+function renderHomeClubPulse(nextMatch) {
+  const container = $('homeClubPulse');
+  if (!container) return;
+  const seed = `${state.clubMessageSeed}:${nextMatch?.id || 'general'}`;
+  container.innerHTML = `
+    <div class="club-pulse">
+      <img src="escudo.png" alt="Escudo del Inter de Verdun" />
+      <div>
+        <span>Mensaje del club</span>
+        <strong>${escapeHtml(getClubMessage(seed))}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function renderHomeAttendanceSummary(nextMatch) {
+  const container = $('homeAttendanceSummary');
+  if (!container) return;
+  if (!nextMatch || !isUuid(nextMatch.id)) {
+    container.innerHTML = '<span class="muted">Convocatoria pendiente de partido oficial.</span>';
+    return;
+  }
+  const counts = getAttendanceCountsForNextMatch();
+  if (state.homeAttendanceSummary.status === 'error') {
+    container.innerHTML = '<span class="muted">Resumen de convocatoria no disponible.</span>';
+    return;
+  }
+  if (!counts || state.homeAttendanceSummary.matchId !== nextMatch.id) {
+    container.innerHTML = '<span class="muted">Convocatoria cargando...</span>';
+    return;
+  }
+  container.innerHTML = `
+    <span>${counts.yes} confirmados</span>
+    <span>${counts.maybe} dudas</span>
+    <span>${counts.pending} pendientes</span>
+  `;
+}
+
+async function maybeLoadHomeAttendanceSummary(matchId) {
+  if (!supabaseClient || !isUuid(matchId)) return;
+  if (state.homeAttendanceSummary.matchId === matchId && state.homeAttendanceSummary.status !== 'idle') return;
+
+  state.homeAttendanceSummary = { matchId, status: 'loading', counts: null };
+  try {
+    const { data, error } = await supabaseClient
+      .from('attendance')
+      .select('status')
+      .eq('match_id', matchId);
+    if (error) throw error;
+    const totalPlayers = getPlayers().length;
+    const counts = { yes: 0, maybe: 0, no: 0, pending: 0 };
+    (data || []).forEach((row) => {
+      const status = normalizeAttendanceStatus(row?.status);
+      if (status === 'yes') counts.yes += 1;
+      else if (status === 'maybe') counts.maybe += 1;
+      else if (status === 'no') counts.no += 1;
+    });
+    counts.pending = Math.max(0, totalPlayers - counts.yes - counts.maybe - counts.no);
+    state.homeAttendanceSummary = { matchId, status: 'ready', counts };
+  } catch (error) {
+    console.warn('[home-attendance] unavailable', error);
+    state.homeAttendanceSummary = { matchId, status: 'error', counts: null };
+  }
+  renderHomeAttendanceSummary(getMatches().find((match) => match.id === matchId));
+}
+
+function renderHomeLastMatch() {
+  const container = $('homeLastMatch');
+  if (!container) return;
+  const match = getLastFinishedMatch();
+  if (!match) {
+    container.innerHTML = '<p class="empty-state">Aún no hay último partido con resultado.</p>';
+    return;
+  }
+  const display = getMatchDisplay(match);
+  const summary = getMatchEventSummary(match);
+  const mvp = getMatchMvpLeaders(match.id);
+  container.innerHTML = `
+    <article class="last-match-card">
+      ${renderMatchdayCard(match, { compact: false })}
+      <div class="last-match-card__details">
+        <span>${escapeHtml(formatDate(match.date))}</span>
+        <span>${escapeHtml(match.venue || 'Velòdrom F7')}</span>
+      </div>
+      <div class="last-match-card__chips">
+        <span>Resultado ${escapeHtml(display.score)}</span>
+        ${summary.goals.length ? `<span>${summary.goals.length} goles Inter</span>` : ''}
+        ${mvp.length ? `<span>MVP ${escapeHtml(mvp.map((item) => item.name).join(', '))}</span>` : ''}
+      </div>
+      ${summary.goals.length ? `<ul class="last-match-card__events">${summary.goals.slice(0, 4).map((goal) => `<li>${escapeHtml(goal)}</li>`).join('')}</ul>` : ''}
+      <button type="button" class="btn btn-secondary" data-action="open-match" data-id="${match.id}">Abrir detalle</button>
+    </article>
+  `;
+}
+
 function getTeamInitials(teamName) {
   const normalized = String(teamName || 'Rival').trim();
   const words = normalized
@@ -1306,6 +1523,140 @@ async function maybeLoadTeamAttendanceTotals() {
   }
 
   renderTeamStatsBlock();
+  renderClub();
+}
+
+function getPlayerScoreRows(players = getPlayers()) {
+  const attendance = state.teamStats?.attendanceByPlayerId || {};
+  const votes = getVotesTotals();
+  return players.map((player) => {
+    const goals = Number(player?.stats?.goles || 0);
+    const assists = Number(player?.stats?.asistencias || 0);
+    const mvp = Number(votes[player.id] ?? player?.stats?.mvps ?? 0);
+    const confirmed = Number(attendance[player.id] || 0);
+    const points = goals * 3 + assists * 2 + mvp * 5 + confirmed;
+    return { ...player, goals, assists, mvp, confirmed, points };
+  }).sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+}
+
+function getPlayerAchievements(player, rows = getPlayerScoreRows()) {
+  if (!player) return [];
+  const row = rows.find((item) => item.id === player.id) || { ...player, goals: 0, assists: 0, mvp: 0, confirmed: 0, points: 0 };
+  const maxGoals = Math.max(0, ...rows.map((item) => item.goals));
+  const maxAssists = Math.max(0, ...rows.map((item) => item.assists));
+  const maxMvp = Math.max(0, ...rows.map((item) => item.mvp));
+  const maxConfirmed = Math.max(0, ...rows.map((item) => item.confirmed));
+  const maxPoints = Math.max(0, ...rows.map((item) => item.points));
+  const achievements = [];
+
+  if (row.goals > 0 && row.goals === maxGoals) achievements.push('Máximo goleador');
+  if (row.assists > 0 && row.assists === maxAssists) achievements.push('Mejor asistente');
+  if (row.mvp > 0 && row.mvp === maxMvp) achievements.push('Rey MVP');
+  if (row.confirmed > 0 && row.confirmed === maxConfirmed) achievements.push('Siempre disponible');
+  if (row.points > 0 && row.points === maxPoints) achievements.push('Pulmón del equipo');
+  if (row.goals >= 5) achievements.push('Killer');
+  if (/def|cierre|d\b/i.test(String(player.position || '')) && row.confirmed > 0) achievements.push('Muro defensivo');
+
+  return [...new Set(achievements)].slice(0, 4);
+}
+
+function renderClubPointsRanking(rows = getPlayerScoreRows()) {
+  const container = $('clubPointsRanking');
+  if (!container) return;
+  const withPoints = rows.filter((row) => row.points > 0);
+  if (!withPoints.length) {
+    container.innerHTML = '<p class="empty-state">Aún no hay datos suficientes para el ranking global.</p>';
+    return;
+  }
+  const leader = Math.max(1, withPoints[0].points);
+  container.innerHTML = `
+    <div class="points-ranking">
+      ${withPoints.slice(0, 8).map((row, index) => `
+        <article class="points-row">
+          <span class="points-row__pos">${index + 1}</span>
+          <div>
+            <strong>${escapeHtml(row.name)}</strong>
+            <small>${row.goals}G · ${row.assists}A · ${row.mvp}MVP · ${row.confirmed}Conv</small>
+            <span class="points-row__bar"><span style="width:${Math.max(8, Math.round((row.points / leader) * 100))}%"></span></span>
+          </div>
+          <em>${row.points}</em>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function computeRivalSummaries() {
+  const map = new Map();
+  getMatches().forEach((match) => {
+    const rival = match.rival || 'Rival';
+    if (!map.has(rival)) {
+      map.set(rival, { name: rival, played: 0, upcoming: 0, won: 0, drawn: 0, lost: 0, gf: 0, gc: 0 });
+    }
+    const item = map.get(rival);
+    const [homeGoals, awayGoals] = getMatchResultTuple(match);
+    if (homeGoals == null || awayGoals == null) {
+      if (new Date(match.date) >= new Date()) item.upcoming += 1;
+      return;
+    }
+    const interGoals = match.home ? homeGoals : awayGoals;
+    const rivalGoals = match.home ? awayGoals : homeGoals;
+    item.played += 1;
+    item.gf += interGoals;
+    item.gc += rivalGoals;
+    if (interGoals > rivalGoals) item.won += 1;
+    else if (interGoals === rivalGoals) item.drawn += 1;
+    else item.lost += 1;
+  });
+  return [...map.values()].sort((a, b) => (b.played + b.upcoming) - (a.played + a.upcoming) || a.name.localeCompare(b.name));
+}
+
+function renderRivalsBlock() {
+  const container = $('clubRivals');
+  if (!container) return;
+  const rivals = computeRivalSummaries();
+  if (!rivals.length) {
+    container.innerHTML = '<p class="empty-state">Aún no hay rivales en el calendario.</p>';
+    return;
+  }
+  container.innerHTML = `
+    <div class="rival-grid">
+      ${rivals.map((rival) => `
+        <article class="rival-card">
+          <img src="${getTeamLogo(rival.name)}" alt="Avatar ${escapeHtml(rival.name)}" />
+          <div>
+            <strong>${escapeHtml(rival.name)}</strong>
+            <small>${rival.played} jugados · ${rival.upcoming} próximos</small>
+            <span>${rival.won}-${rival.drawn}-${rival.lost} · GF ${rival.gf} / GC ${rival.gc}</span>
+          </div>
+        </article>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderOfficialLeaguePanel() {
+  const container = $('officialLeaguePanel');
+  if (!container) return;
+  const tabs = [
+    { id: 'standings', label: 'Clasificación', url: OFFICIAL_LINKS.standings },
+    { id: 'calendar', label: 'Calendario', url: OFFICIAL_LINKS.calendar },
+    { id: 'team', label: 'Equipo', url: OFFICIAL_LINKS.team }
+  ];
+  const active = tabs.find((tab) => tab.id === state.officialLeagueTab) || tabs[0];
+  container.innerHTML = `
+    <div class="official-tabs">
+      ${tabs.map((tab) => `<button type="button" class="${tab.id === active.id ? 'is-active' : ''}" data-action="official-tab" data-tab="${tab.id}">${tab.label}</button>`).join('')}
+    </div>
+    <div class="official-frame-wrap">
+      <iframe title="${escapeHtml(active.label)} oficial Apúntamelo" src="${escapeHtml(active.url)}" loading="lazy"></iframe>
+    </div>
+    <div class="official-fallback">
+      <p>Si la web oficial no se muestra dentro de la app, ábrela fuera.</p>
+      <button type="button" class="btn btn-gold" data-action="open-official" data-url="${escapeHtml(active.url)}">Abrir ${escapeHtml(active.label.toLowerCase())} oficial</button>
+      <button type="button" class="btn btn-secondary" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.instagram)}">Instagram</button>
+    </div>
+  `;
 }
 
 function getSessionUser() {
@@ -1459,6 +1810,9 @@ function renderHome() {
     if ($('nextMatchMeta')) $('nextMatchMeta').textContent = 'Cuando haya fecha confirmada la verás aquí.';
     if ($('homeMatchCard')) $('homeMatchCard').innerHTML = renderMatchdayCard(null);
     if ($('homeTacticalPlan')) $('homeTacticalPlan').innerHTML = renderTacticalInsight(null, { compact: true, title: 'Plan de partido' });
+    renderHomeClubPulse(null);
+    renderHomeAttendanceSummary(null);
+    renderHomeLastMatch();
     $('goConfirmBtn').textContent = 'Ir a Convocatoria';
     return;
   }
@@ -1472,6 +1826,10 @@ function renderHome() {
 
   renderTeamStatsBlock();
   maybeLoadTeamAttendanceTotals();
+  renderHomeClubPulse(nextMatch);
+  renderHomeAttendanceSummary(nextMatch);
+  if (nextMatch?.id) maybeLoadHomeAttendanceSummary(nextMatch.id);
+  renderHomeLastMatch();
 
   if ($('homeMatchCard')) $('homeMatchCard').innerHTML = renderMatchdayCard(nextMatch);
   $('nextMatchText').textContent = nextMatch ? `vs ${nextMatch.rival}` : 'Sin partido próximo';
@@ -1687,43 +2045,43 @@ function renderClub() {
     </section>`;
 
   const players = getPlayers().sort((a, b) => (a.dorsal || 999) - (b.dorsal || 999));
-  $('squadList').innerHTML = players.length ? players.map((p) => `
-    <li class="squad-card">
-      <div class="squad-shirt" aria-hidden="true">
-        <span>${p.dorsal || '-'}</span>
-      </div>
-      <div class="squad-card__body">
-        <div class="squad-card__top">
-          <strong>${escapeHtml(p.name)}</strong>
-          <span class="chip">${escapeHtml(p.position || 'N/D')}</span>
-        </div>
-        <div class="squad-statline">
-          <span><strong>${p.stats.goles || 0}</strong> G</span>
-          <span><strong>${p.stats.asistencias || 0}</strong> A</span>
-          <span><strong>${p.stats.mvps || 0}</strong> MVP</span>
-          <span><strong>${p.stats.amarillas || 0}</strong> TA</span>
-          <span><strong>${p.stats.rojas || 0}</strong> TR</span>
-        </div>
-      </div>
-    </li>`).join('') : '<li>No hay jugadores cargados todavía.</li>';
+  const scoreRows = getPlayerScoreRows(players);
+  $('squadList').innerHTML = players.length ? players.map((p) => {
+    const row = scoreRows.find((item) => item.id === p.id) || {};
+    const achievements = getPlayerAchievements(p, scoreRows);
+    return `
+      <li class="squad-list-item">
+        <button type="button" class="squad-card" data-action="open-player" data-player-id="${p.id}">
+          <div class="squad-shirt" aria-hidden="true">
+            <span>${p.dorsal || '-'}</span>
+          </div>
+          <div class="squad-card__body">
+            <div class="squad-card__top">
+              <strong>${escapeHtml(p.name)}</strong>
+              <span class="chip">${escapeHtml(p.position || 'N/D')}</span>
+            </div>
+            <div class="squad-statline">
+              <span><strong>${p.stats.goles || 0}</strong> G</span>
+              <span><strong>${p.stats.asistencias || 0}</strong> A</span>
+              <span><strong>${row.mvp || p.stats.mvps || 0}</strong> MVP</span>
+              <span><strong>${p.stats.amarillas || 0}</strong> TA</span>
+              <span><strong>${p.stats.rojas || 0}</strong> TR</span>
+            </div>
+            ${achievements.length ? `<div class="achievement-strip">${achievements.slice(0, 2).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
+          </div>
+        </button>
+      </li>`;
+  }).join('') : '<li>No hay jugadores cargados todavía.</li>';
 
-  if (!$('clubLinksCard')) {
-    const linksCard = document.createElement('article');
-    linksCard.id = 'clubLinksCard';
-    linksCard.className = 'card card--accent';
-    linksCard.style.setProperty('--accent-color', 'var(--dorado)');
-    linksCard.innerHTML = `<h2 class="section-title">Enlaces del club</h2><div class="link-actions"><button type="button" id="clubInstagramBtn" class="btn btn-secondary ext-btn ext-btn--ig" aria-label="Abrir Instagram"><span class="ext-btn__icon" aria-hidden="true">📸</span><span>Instagram</span></button><button type="button" id="clubLeagueBtn" class="btn btn-secondary ext-btn ext-btn--liga" aria-label="Abrir Liga"><span class="ext-btn__icon" aria-hidden="true">⚽</span><span>Liga (Apúntamelo)</span></button><button type="button" id="clubTableBtn" class="btn btn-gold">Ver clasificación</button></div>`;
-    document.querySelector('[data-view="club"]').appendChild(linksCard);
-    const url = 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0';
-    $('clubInstagramBtn')?.addEventListener('click', () => window.open('https://instagram.com/interdeverdunbcn', '_blank', 'noopener'));
-    $('clubLeagueBtn')?.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
-    $('clubTableBtn')?.addEventListener('click', () => window.open(url, '_blank', 'noopener'));
-  }
+  renderClubPointsRanking(scoreRows);
+  renderRivalsBlock();
+  renderOfficialLeaguePanel();
 }
 
 async function loadMvpData(selectedMatchId) {
   state.mvp.selectedMatchId = selectedMatchId || state.mvp.selectedMatchId;
   state.mvp.votesByPlayerForSelected = {};
+  state.mvp.votesByMatch = {};
   state.mvp.globalTotals = {};
 
   if (!supabaseClient) return;
@@ -1742,6 +2100,11 @@ async function loadMvpData(selectedMatchId) {
     const playerId = String(row.voted_player_id || '');
     if (!playerId) return;
     state.mvp.globalTotals[playerId] = (state.mvp.globalTotals[playerId] || 0) + 1;
+    if (row.match_id) {
+      const matchId = String(row.match_id);
+      if (!state.mvp.votesByMatch[matchId]) state.mvp.votesByMatch[matchId] = {};
+      state.mvp.votesByMatch[matchId][playerId] = (state.mvp.votesByMatch[matchId][playerId] || 0) + 1;
+    }
     if (state.mvp.selectedMatchId && row.match_id === state.mvp.selectedMatchId) {
       state.mvp.votesByPlayerForSelected[playerId] = (state.mvp.votesByPlayerForSelected[playerId] || 0) + 1;
     }
@@ -2292,6 +2655,7 @@ async function refreshSessionData(options = {}) {
     state.teamStats = state.teamStats || { tab: 'goals', attendanceStatus: 'idle', attendanceByPlayerId: null };
     state.teamStats.attendanceStatus = 'idle';
     state.teamStats.attendanceByPlayerId = null;
+    state.homeAttendanceSummary = { matchId: null, status: 'idle', counts: null };
 
     await hydrateSessionData();
     renderAll();
@@ -2740,6 +3104,48 @@ function openAdminLineupForMatch(matchId) {
   requestAnimationFrame(() => document.getElementById('lineupFieldAdmin')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }));
 }
 
+function openPlayerModal(playerId) {
+  const player = getPlayers().find((item) => item.id === playerId);
+  if (!player) return;
+  const rows = getPlayerScoreRows();
+  const row = rows.find((item) => item.id === player.id) || {};
+  const achievements = getPlayerAchievements(player, rows);
+  const content = $('playerModalContent');
+  if (!content) return;
+
+  content.innerHTML = `
+    <section class="player-modal-hero">
+      <div class="player-modal-shirt">
+        <span>${player.dorsal || '-'}</span>
+      </div>
+      <div>
+        <span class="player-modal-eyebrow">Ficha jugador</span>
+        <h3>${escapeHtml(player.name)}</h3>
+        <p>${escapeHtml(player.position || 'N/D')}</p>
+      </div>
+    </section>
+    <section class="player-modal-stats">
+      ${[
+        ['Goles', player.stats.goles || 0],
+        ['Asist.', player.stats.asistencias || 0],
+        ['MVP', row.mvp || player.stats.mvps || 0],
+        ['TA', player.stats.amarillas || 0],
+        ['TR', player.stats.rojas || 0],
+        ['Conv.', row.confirmed || 0],
+        ['Puntos', row.points || 0]
+      ].map(([label, value]) => `<article><small>${label}</small><strong>${value}</strong></article>`).join('')}
+    </section>
+    <section class="player-modal-achievements">
+      <h4>Logros</h4>
+      ${achievements.length
+        ? `<div>${achievements.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>`
+        : '<p class="muted">Aún no hay logros automáticos con los datos actuales.</p>'}
+    </section>
+  `;
+
+  $('playerModal')?.showModal();
+}
+
 function openMatchModal(matchId) {
   const m = getMatches().find((x) => x.id === matchId);
   if (!m) return;
@@ -2750,7 +3156,9 @@ function openMatchModal(matchId) {
   const jornada = m.jornada || m.matchday || m.round || '';
   const localTeam = m.home ? 'Inter F7' : (m.rival || 'Rival');
   const awayTeam = m.home ? (m.rival || 'Rival') : 'Inter F7';
-  const scorers = extractInterScorers(m);
+  const eventSummary = getMatchEventSummary(m);
+  const mvpLeaders = getMatchMvpLeaders(m.id);
+  const recentForm = getRecentInterForm(5);
   const textualResult = m.result_text || m.resultText || m.resultado_texto || '';
   const resultLabel = hasResult ? `${homeGoals} - ${awayGoals}` : '-';
 
@@ -2772,9 +3180,24 @@ function openMatchModal(matchId) {
   `;
 
   $('modalSummary').innerHTML = `
+    <section class="match-compare">
+      <article>
+        <small>Inter</small>
+        <strong>${hasResult ? (m.home ? homeGoals : awayGoals) : '-'}</strong>
+        <span>${recentForm.length ? recentForm.map((item) => `<i class="form-dot mini ${item === 'G' ? 'is-win' : (item === 'E' ? 'is-draw' : 'is-loss')}">${item}</i>`).join('') : 'Sin racha'}</span>
+      </article>
+      <article>
+        <small>${escapeHtml(m.rival || 'Rival')}</small>
+        <strong>${hasResult ? (m.home ? awayGoals : homeGoals) : '-'}</strong>
+        <span>${escapeHtml(m.home ? 'Inter local' : 'Inter visitante')}</span>
+      </article>
+    </section>
     <p><strong>Localía:</strong> ${m.home ? 'Casa' : 'Fuera'} · <strong>Campo:</strong> ${escapeHtml(m.venue || 'Velòdrom F7')}</p>
     ${textualResult ? `<p><strong>Resumen:</strong> ${escapeHtml(textualResult)}</p>` : ''}
-    ${scorers.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${scorers.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
+    ${eventSummary.goals.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${eventSummary.goals.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
+    ${eventSummary.assists.length ? `<p><strong>Asistencias:</strong> ${escapeHtml(eventSummary.assists.join(', '))}</p>` : ''}
+    ${mvpLeaders.length ? `<p><strong>MVP:</strong> ${escapeHtml(mvpLeaders.map((item) => item.name).join(', '))}</p>` : ''}
+    ${eventSummary.cards.length ? `<p><strong>Tarjetas:</strong> ${escapeHtml(eventSummary.cards.join(', '))}</p>` : ''}
   `;
 
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
@@ -2944,6 +3367,23 @@ function bindEvents() {
       return;
     }
 
+    if (btn.dataset.action === 'open-player') {
+      openPlayerModal(btn.dataset.playerId);
+      return;
+    }
+
+    if (btn.dataset.action === 'official-tab') {
+      state.officialLeagueTab = btn.dataset.tab || 'standings';
+      renderOfficialLeaguePanel();
+      return;
+    }
+
+    if (btn.dataset.action === 'open-official') {
+      const url = btn.dataset.url || OFFICIAL_LINKS.standings;
+      window.open(url, '_blank', 'noopener');
+      return;
+    }
+
     if (btn.dataset.action === 'lineup-slot') {
       state.lineupEditor.selectedSlot = btn.dataset.slot;
       renderLineupEditor();
@@ -3013,6 +3453,7 @@ function bindEvents() {
 
       state.selectedMatchId = matchId;
       await loadConvocatoriaData(matchId);
+      state.homeAttendanceSummary = { matchId: null, status: 'idle', counts: null };
       renderConvocatoria();
       renderHome();
       showToast('Asistencia guardada');
@@ -3020,6 +3461,7 @@ function bindEvents() {
 
     if (btn.dataset.action === 'open-match') {
       openMatchModal(btn.dataset.id);
+      return;
     }
 
   });
@@ -3059,6 +3501,7 @@ function bindEvents() {
   });
 
   $('closeModalBtn')?.addEventListener('click', () => $('matchModal')?.close());
+  $('closePlayerModalBtn')?.addEventListener('click', () => $('playerModal')?.close());
   window.addEventListener('hashchange', route);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') scheduleAutoRefreshOnForeground('visibilitychange');
