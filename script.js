@@ -63,7 +63,8 @@ const OFFICIAL_LINKS = {
   instagram: 'https://instagram.com/interdeverdunbcn',
   standings: 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0',
   calendar: 'https://apuntamelo.com/grupo/9/26/0/653/0/3349/0',
-  team: 'https://apuntamelo.com/equipo/9/26/0/653/0/3349/26489/0'
+  team: 'https://apuntamelo.com/equipo/9/26/0/653/0/3349/26489/0',
+  club: 'https://apuntamelo.com/equipo/9/26/0/653/0/3349/26489/0'
 };
 const CLUB_MESSAGES = [
   'Juntos somos más fuertes.',
@@ -1641,10 +1642,29 @@ function renderOfficialLeaguePanel() {
   const tabs = [
     { id: 'standings', label: 'Clasificación', url: OFFICIAL_LINKS.standings },
     { id: 'calendar', label: 'Calendario', url: OFFICIAL_LINKS.calendar },
-    { id: 'team', label: 'Equipo', url: OFFICIAL_LINKS.team }
+    { id: 'club', label: 'Club', url: OFFICIAL_LINKS.club }
   ];
   const active = tabs.find((tab) => tab.id === state.officialLeagueTab) || tabs[0];
   container.innerHTML = `
+    <div class="official-access-grid">
+      <button type="button" class="official-access-card is-gold" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.standings)}">
+        <span>Clasificación</span>
+        <strong>Ver liga oficial</strong>
+      </button>
+      <button type="button" class="official-access-card" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.calendar)}">
+        <span>Calendario</span>
+        <strong>Resultados y jornadas</strong>
+      </button>
+      <button type="button" class="official-access-card is-club" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.club)}">
+        <span>Club</span>
+        <strong>Inter en Apúntamelo</strong>
+      </button>
+      <button type="button" class="official-access-card is-instagram" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.instagram)}">
+        <span>Instagram</span>
+        <strong>@interdeverdunbcn</strong>
+      </button>
+    </div>
+    <p class="official-note">Los enlaces oficiales se abren fuera de la app para verse bien en móvil.</p>
     <div class="official-tabs">
       ${tabs.map((tab) => `<button type="button" class="${tab.id === active.id ? 'is-active' : ''}" data-action="official-tab" data-tab="${tab.id}">${tab.label}</button>`).join('')}
     </div>
@@ -1652,9 +1672,8 @@ function renderOfficialLeaguePanel() {
       <iframe title="${escapeHtml(active.label)} oficial Apúntamelo" src="${escapeHtml(active.url)}" loading="lazy"></iframe>
     </div>
     <div class="official-fallback">
-      <p>Si la web oficial no se muestra dentro de la app, ábrela fuera.</p>
+      <p>Vista previa para escritorio. En móvil usa los botones superiores.</p>
       <button type="button" class="btn btn-gold" data-action="open-official" data-url="${escapeHtml(active.url)}">Abrir ${escapeHtml(active.label.toLowerCase())} oficial</button>
-      <button type="button" class="btn btn-secondary" data-action="open-official" data-url="${escapeHtml(OFFICIAL_LINKS.instagram)}">Instagram</button>
     </div>
   `;
 }
