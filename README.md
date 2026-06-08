@@ -22,6 +22,8 @@ Abrir: `http://localhost:4173`
 
 La app usa la clave pública del frontend y nunca debe incluir `service_role` ni secretos en `script.js`.
 
+El acceso es privado: los usuarios se gestionan desde Supabase Auth/perfiles y la app no muestra registro público ni botón de crear cuenta.
+
 SQL existente:
 - `supabase_acta_admin_schema.sql`: acta/resultados y RPC admin.
 - `supabase_backfill_match_results_2026.sql`: resultados históricos.
