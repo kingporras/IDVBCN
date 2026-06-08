@@ -50,12 +50,22 @@
             <button id="goConfirmBtn" class="btn btn-primary home-cta">Confirmar asistencia</button>
             <button id="homeRefreshBtn" type="button" class="btn btn-secondary home-update-btn">Actualizar app</button>
           </div>
-          <small class="home-update-note">Borra cache y carga la ultima version publicada.</small>
+          <small class="home-update-note">Borra caché y carga la última versión publicada.</small>
         </article>
 
         <article class="card home-club-pulse-card">
           <div id="homeClubPulse"></div>
           <div id="homeAttendanceSummary" class="home-attendance-summary"></div>
+        </article>
+
+        <article class="card card--accent home-inter-tv-card" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Inter TV</h2>
+          <div id="homeInterTv"></div>
+        </article>
+
+        <article class="card card--accent home-featured-player-card" style="--accent-color: var(--celeste)">
+          <h2 class="section-title">Jugador destacado</h2>
+          <div id="homeFeaturedPlayer"></div>
         </article>
 
         <article class="card card--accent home-lineup-card" style="--accent-color: #4ecf8f">
@@ -70,7 +80,7 @@
         </article>
 
         <article class="card card--accent home-last-match-card" style="--accent-color: var(--celeste)">
-          <h2 class="section-title">Ultimo partido</h2>
+          <h2 class="section-title">Último partido</h2>
           <div id="homeLastMatch"></div>
         </article>
 
@@ -104,6 +114,7 @@
       <section class="view" data-view="calendario">
         <article class="card card--accent" style="--accent-color: #7fb8ff">
           <h2 class="section-title">Calendario (Fútbol 7)</h2>
+          <div id="calendarFilters" class="calendar-filters"></div>
           <ul id="calendarList" class="list"></ul>
         </article>
       </section>
@@ -120,6 +131,10 @@
         <article class="card card--accent" style="--accent-color: var(--celeste)">
           <h2 class="section-title">Estadísticas globales</h2>
           <div id="clubStats" class="stats-grid"></div>
+        </article>
+        <article class="card card--accent" style="--accent-color: var(--dorado)">
+          <h2 class="section-title">Palmarés del Club</h2>
+          <div id="clubHonours"></div>
         </article>
         <article class="card card--accent" style="--accent-color: var(--dorado)">
           <h2 class="section-title">Ranking global</h2>
@@ -174,8 +189,9 @@
     <article class="card">
       <section id="modalHeader" class="match-modal-header"></section>
       <section id="modalHero" class="match-modal-hero"></section>
+      <section id="modalTabs" class="match-modal-tabs"></section>
       <section id="modalSummary" class="match-modal-summary"></section>
-      <div class="card lineup-card-modal">
+      <div id="lineupCardModal" class="card lineup-card-modal">
         <h4>Alineación</h4>
         <p id="lineupModalMessage" class="lineup-message">Sin alineación definida</p>
         <div id="lineupFieldModal" class="lineup-field hidden"></div>

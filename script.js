@@ -31,6 +31,7 @@ const state = {
     votesByPlayerForSelected: {},
     votesByMatch: {},
     globalTotals: {},
+    userVotesByMatch: {},
     lastVotePayload: '-'
   },
   teamStats: {
@@ -43,9 +44,28 @@ const state = {
     status: 'idle',
     counts: null
   },
+  calendarFilter: 'all',
   clubMessageSeed: Date.now(),
   matchEventsByMatch: {},
+  interTvAssets: [],
+  interTvStatus: 'idle',
+  playerMediaByPlayerId: {},
+  platformSchemaStatus: 'unknown',
   officialLeagueTab: 'standings',
+  matchModal: {
+    matchId: null,
+    tab: 'resumen'
+  },
+  payments: {
+    status: 'idle',
+    settings: null,
+    rows: [],
+    error: ''
+  },
+  interAi: {
+    status: 'idle',
+    text: ''
+  },
   lineupsByMatch: {},
   lineupEditor: {
     selectedMatchId: null,
@@ -76,6 +96,99 @@ const CLUB_MESSAGES = [
   'Primero competir, luego jugar.',
   'El escudo se defiende desde el primer minuto.'
 ];
+
+const CLUB_HONOURS = [
+  {
+    title: 'Subcampeón',
+    competition: 'Liga de Fútbol 7 Canyelles',
+    season: '2023-2024',
+    type: 'runner_up',
+    description: 'La temporada donde el Inter empezó a mirar de frente a la liga.'
+  },
+  {
+    title: 'Campeón de Invierno',
+    competition: 'Liga de Fútbol 7 Canyelles',
+    season: '2024-2025',
+    type: 'champion_winter',
+    description: 'Primer golpe serio sobre la mesa: regularidad, bloque y resultados.'
+  },
+  {
+    title: 'Campeón de Verano',
+    competition: 'Liga de Fútbol 7 Canyelles',
+    season: '2024-2025',
+    type: 'champion_summer',
+    description: 'Segundo título del curso para cerrar una temporada histórica.'
+  },
+  {
+    title: 'Bicampeón Canyelles',
+    competition: 'Insignia del club',
+    season: '2024-2025',
+    type: 'bicampeon',
+    description: 'Invierno y verano en la misma temporada. De competir a dominar Canyelles.'
+  }
+];
+
+const INTER_TV_TYPES = {
+  match_preview: {
+    label: 'Previa del partido',
+    title: 'Inter TV · Previa',
+    accent: 'var(--celeste)',
+    scriptLabel: 'Guion previa'
+  },
+  convocatoria: {
+    label: 'Convocatoria abierta',
+    title: 'Inter TV · Convocatoria',
+    accent: 'var(--dorado)',
+    scriptLabel: 'Guion convocatoria'
+  },
+  match_recap: {
+    label: 'Resumen postpartido',
+    title: 'Inter TV · Resumen',
+    accent: '#4ecf8f',
+    scriptLabel: 'Guion resumen'
+  },
+  mvp: {
+    label: 'MVP de la jornada',
+    title: 'Inter TV · MVP',
+    accent: '#ffd76f',
+    scriptLabel: 'Guion MVP'
+  },
+  payment_reminder: {
+    label: 'Recordatorio de pago',
+    title: 'Inter TV · Cuotas',
+    accent: '#ffb36b',
+    scriptLabel: 'Guion pagos'
+  },
+  honours: {
+    label: 'Historia del club',
+    title: 'Inter TV · Palmarés',
+    accent: 'var(--dorado)',
+    scriptLabel: 'Guion palmarés'
+  },
+  player: {
+    label: 'Presentación de jugador',
+    title: 'Inter TV · Jugador',
+    accent: 'var(--celeste)',
+    scriptLabel: 'Guion jugador'
+  },
+  captain_message: {
+    label: 'Mensaje del capitán',
+    title: 'Inter TV · Capitán',
+    accent: '#0f2d49',
+    scriptLabel: 'Guion capitán'
+  }
+};
+
+const PAYMENT_SEASON = '2025-2026';
+const DEFAULT_PAYMENT_SETTINGS = {
+  season: PAYMENT_SEASON,
+  total_amount: 25,
+  payment_mode: 'single',
+  first_payment_amount: 25,
+  second_payment_amount: 0,
+  first_due_date: '',
+  second_due_date: ''
+};
 let lastAutoRefreshAt = 0;
 let refreshInFlight = false;
 
@@ -446,6 +559,37 @@ async function loadData() {
       });
       Object.values(state.matchEventsByMatch).forEach((rows) => rows.sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0)));
     }
+
+    const [tvAssetsRes, playerMediaRes] = await Promise.allSettled([
+      supabaseClient.from('inter_tv_assets').select('id,type,match_id,player_id,title,script,heygen_url,auto_enabled,updated_at').order('updated_at', { ascending: false }),
+      supabaseClient.from('player_media').select('player_id,heygen_url,avatar_style,bio,phrase')
+    ]);
+
+    state.interTvAssets = [];
+    state.playerMediaByPlayerId = {};
+    state.platformSchemaStatus = 'ready';
+
+    const optionalErrors = [];
+    if (tvAssetsRes.status === 'fulfilled' && !tvAssetsRes.value?.error) {
+      state.interTvAssets = tvAssetsRes.value.data || [];
+    } else {
+      optionalErrors.push(tvAssetsRes.status === 'fulfilled' ? tvAssetsRes.value?.error : tvAssetsRes.reason);
+    }
+
+    if (playerMediaRes.status === 'fulfilled' && !playerMediaRes.value?.error) {
+      (playerMediaRes.value.data || []).forEach((row) => {
+        if (row?.player_id) state.playerMediaByPlayerId[String(row.player_id)] = row;
+      });
+    } else {
+      optionalErrors.push(playerMediaRes.status === 'fulfilled' ? playerMediaRes.value?.error : playerMediaRes.reason);
+    }
+
+    if (optionalErrors.some(isMissingOptionalSchemaError)) {
+      state.platformSchemaStatus = 'missing';
+    } else if (optionalErrors.length) {
+      state.platformSchemaStatus = 'error';
+      console.warn('[platform-modules] optional data unavailable', optionalErrors);
+    }
   } catch (error) {
     console.error(error);
     state.data = emptyData;
@@ -555,6 +699,15 @@ function isMissingActaSchemaError(error) {
       || message.includes('match_reports')
       || message.includes('save_match_acta')
     ))
+    || (message.includes('relation') && message.includes('does not exist'));
+}
+
+function isMissingOptionalSchemaError(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '').toLowerCase();
+  return ['42P01', '42703', '42883', 'PGRST202', 'PGRST205'].includes(code)
+    || message.includes('could not find the table')
+    || message.includes('schema cache')
     || (message.includes('relation') && message.includes('does not exist'));
 }
 
@@ -1135,8 +1288,9 @@ function renderHomeAttendanceSummary(nextMatch) {
     return;
   }
   container.innerHTML = `
-    <span>${counts.yes} confirmados</span>
+    <span>${counts.yes} voy</span>
     <span>${counts.maybe} dudas</span>
+    <span>${counts.no} no voy</span>
     <span>${counts.pending} pendientes</span>
   `;
 }
@@ -1314,10 +1468,10 @@ function renderMatchdayCard(match, options = {}) {
 }
 
 function statusLabel(status) {
-  if (status === 'yes') return '✅ Confirmado';
-  if (status === 'no') return '❌ Baja';
-  if (status === 'maybe') return '⏳ Dudoso';
-  return '⏳ Pendiente';
+  if (status === 'yes') return 'Voy';
+  if (status === 'no') return 'No voy';
+  if (status === 'maybe') return 'Duda';
+  return 'Pendiente';
 }
 
 function statusClass(status) {
@@ -1678,6 +1832,414 @@ function renderOfficialLeaguePanel() {
   `;
 }
 
+function getLatestInterTvAsset(type, options = {}) {
+  const matchId = options.matchId || options.match?.id || null;
+  const playerId = options.playerId || options.player?.id || null;
+  return (state.interTvAssets || []).find((asset) => {
+    if (asset.type !== type) return false;
+    if (matchId && asset.match_id && String(asset.match_id) !== String(matchId)) return false;
+    if (playerId && asset.player_id && String(asset.player_id) !== String(playerId)) return false;
+    return true;
+  }) || null;
+}
+
+function getLastMvpName(matchId = getLastFinishedMatch()?.id) {
+  const leaders = matchId ? getMatchMvpLeaders(matchId) : [];
+  return leaders[0]?.name || '';
+}
+
+function getFeaturedPlayer() {
+  const rows = getPlayerScoreRows();
+  return rows.find((row) => row.points > 0) || rows[0] || getPlayers()[0] || null;
+}
+
+function getPaymentSettings() {
+  return { ...DEFAULT_PAYMENT_SETTINGS, ...(state.payments?.settings || {}) };
+}
+
+function formatMoney(value) {
+  const number = Number(value || 0);
+  return `${number.toLocaleString('es-ES', { maximumFractionDigits: 2 })} €`;
+}
+
+function getPaymentRowForPlayer(playerId) {
+  return (state.payments.rows || []).find((row) => String(row.player_id) === String(playerId)) || null;
+}
+
+function isPaymentExempt(row) {
+  return String(row?.notes || '').toLowerCase().includes('[exento]');
+}
+
+function getPaymentStatus(row, settings = getPaymentSettings()) {
+  if (!row) return { key: 'pending', label: 'Pendiente' };
+  if (isPaymentExempt(row)) return { key: 'exempt', label: 'Exento' };
+  if (settings.payment_mode === 'split_2') {
+    if (row.first_paid && row.second_paid) return { key: 'paid', label: 'Pagado' };
+    if (row.first_paid || row.second_paid) return { key: 'partial', label: 'Parcial' };
+    return { key: 'pending', label: 'Pendiente' };
+  }
+  return row.paid_full || row.first_paid ? { key: 'paid', label: 'Pagado' } : { key: 'pending', label: 'Pendiente' };
+}
+
+function computePaymentsSummary() {
+  const settings = getPaymentSettings();
+  const players = getPlayers();
+  let expected = 0;
+  let collected = 0;
+  let paid = 0;
+  let pending = 0;
+
+  players.forEach((player) => {
+    const row = getPaymentRowForPlayer(player.id);
+    const status = getPaymentStatus(row, settings);
+    if (status.key === 'exempt') return;
+    expected += Number(settings.total_amount || 0);
+    if (settings.payment_mode === 'split_2') {
+      if (row?.first_paid) collected += Number(settings.first_payment_amount || 0);
+      if (row?.second_paid) collected += Number(settings.second_payment_amount || 0);
+    } else if (row?.paid_full || row?.first_paid) {
+      collected += Number(settings.total_amount || 0);
+    }
+    if (status.key === 'paid') paid += 1;
+    else pending += 1;
+  });
+
+  return { expected, collected, pendingAmount: Math.max(0, expected - collected), paid, pending };
+}
+
+async function loadPaymentsData(force = false) {
+  if (!supabaseClient || !isAdmin()) return;
+  if (!force && ['loading', 'ready', 'missing'].includes(state.payments.status)) return;
+  state.payments.status = 'loading';
+
+  try {
+    const { data: settingsRows, error: settingsError } = await supabaseClient
+      .from('payment_settings')
+      .select('*')
+      .eq('season', PAYMENT_SEASON)
+      .order('updated_at', { ascending: false })
+      .limit(1);
+    if (settingsError) throw settingsError;
+
+    const settings = settingsRows?.[0] || null;
+    const { data: paymentRows, error: rowsError } = await supabaseClient
+      .from('player_payments')
+      .select('*')
+      .eq('season', PAYMENT_SEASON);
+    if (rowsError) throw rowsError;
+
+    state.payments = {
+      status: 'ready',
+      settings,
+      rows: paymentRows || [],
+      error: ''
+    };
+  } catch (error) {
+    console.warn('[payments] unavailable', error);
+    state.payments = {
+      status: isMissingOptionalSchemaError(error) ? 'missing' : 'error',
+      settings: null,
+      rows: [],
+      error: error?.message || 'Pagos no disponible'
+    };
+  }
+
+  if ((window.location.hash.replace('#', '') || 'home') === 'admin') renderAdmin();
+}
+
+function readPaymentSettingsInputs() {
+  const mode = $('paymentMode')?.value === 'split_2' ? 'split_2' : 'single';
+  const total = Number($('paymentTotalAmount')?.value || DEFAULT_PAYMENT_SETTINGS.total_amount);
+  const firstAmount = mode === 'split_2'
+    ? Number($('paymentFirstAmount')?.value || 0)
+    : total;
+  const secondAmount = mode === 'split_2'
+    ? Number($('paymentSecondAmount')?.value || 0)
+    : 0;
+  return {
+    season: PAYMENT_SEASON,
+    total_amount: total,
+    payment_mode: mode,
+    first_payment_amount: firstAmount,
+    second_payment_amount: secondAmount,
+    first_due_date: $('paymentFirstDueDate')?.value || null,
+    second_due_date: $('paymentSecondDueDate')?.value || null
+  };
+}
+
+async function savePaymentSettings() {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!supabaseClient) return showToast('Supabase no disponible', 'error');
+  const nextSettings = readPaymentSettingsInputs();
+
+  try {
+    const existingId = state.payments.settings?.id;
+    const query = existingId
+      ? supabaseClient.from('payment_settings').update(nextSettings).eq('id', existingId).select().single()
+      : supabaseClient.from('payment_settings').insert(nextSettings).select().single();
+    const { data, error } = await query;
+    if (error) throw error;
+    state.payments.settings = data;
+    await loadPaymentsData(true);
+    showToast('Cuota guardada', 'success');
+  } catch (error) {
+    console.error('[payments] save settings error', error);
+    showToast(isMissingOptionalSchemaError(error) ? 'Ejecuta el SQL de módulos primero' : (error.message || 'No se pudo guardar pagos'), 'error');
+  }
+}
+
+async function updatePlayerPayment(playerId, action) {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!supabaseClient) return showToast('Supabase no disponible', 'error');
+  if (state.payments.status !== 'ready') return showToast('Ejecuta el SQL de módulos primero', 'error');
+
+  let settings = state.payments.settings;
+  if (!settings?.id) {
+    await savePaymentSettings();
+    settings = state.payments.settings;
+    if (!settings?.id) return;
+  }
+
+  const current = getPaymentRowForPlayer(playerId) || {};
+  let firstPaid = Boolean(current.first_paid);
+  let secondPaid = Boolean(current.second_paid);
+  let notes = String(current.notes || '').replace(/\s*\[exento\]\s*/gi, '').trim();
+
+  if (action === 'paid') {
+    firstPaid = true;
+    secondPaid = settings.payment_mode === 'split_2' ? true : false;
+  } else if (action === 'pending') {
+    firstPaid = false;
+    secondPaid = false;
+  } else if (action === 'first') {
+    firstPaid = !firstPaid;
+  } else if (action === 'second') {
+    secondPaid = !secondPaid;
+  } else if (action === 'exempt') {
+    firstPaid = false;
+    secondPaid = false;
+    notes = `${notes ? `${notes} ` : ''}[exento]`;
+  }
+
+  const paidFull = settings.payment_mode === 'split_2' ? (firstPaid && secondPaid) : firstPaid;
+  const payload = {
+    player_id: playerId,
+    season: PAYMENT_SEASON,
+    payment_settings_id: settings.id,
+    first_paid: firstPaid,
+    second_paid: secondPaid,
+    paid_full: paidFull,
+    notes,
+    updated_by: getSessionUser()?.id || null
+  };
+
+  try {
+    const { error } = await supabaseClient
+      .from('player_payments')
+      .upsert(payload, { onConflict: 'player_id,season' });
+    if (error) throw error;
+    await loadPaymentsData(true);
+    showToast('Pago actualizado', 'success');
+  } catch (error) {
+    console.error('[payments] row update error', error);
+    showToast(error.message || 'No se pudo actualizar el pago', 'error');
+  }
+}
+
+function getInterTvScript(type, options = {}) {
+  const match = options.match || getUpcomingMatch() || getLastFinishedMatch();
+  const player = options.player || getFeaturedPlayer();
+  const lastMatch = getLastFinishedMatch();
+  const mvpName = options.mvpName || getLastMvpName(lastMatch?.id);
+  const counts = getAttendanceCountsForNextMatch();
+  const paymentSummary = computePaymentsSummary();
+  const rival = match?.rival || 'rival por confirmar';
+  const date = match ? formatDate(match.date) : 'fecha por confirmar';
+  const venue = match?.venue || 'Velòdrom F7';
+  const localia = match?.home ? 'en casa' : 'fuera';
+  const result = lastMatch ? getMatchDisplay(lastMatch).score : '-';
+
+  const scripts = {
+    match_preview: `Inter TV. Próximo partido del Inter de Verdun contra ${rival}, ${date}, ${localia} en ${venue}. Equipo corto, líneas juntas y máxima intensidad desde el primer balón.`,
+    convocatoria: `Convocatoria abierta para el Inter de Verdun. ${counts ? `${counts.yes} van, ${counts.maybe} están en duda y ${counts.pending} siguen pendientes.` : 'Toca confirmar asistencia cuanto antes.'} El capitán necesita saber con quién cuenta.`,
+    match_recap: `Resumen Inter TV. Último partido: ${lastMatch ? `${lastMatch.home ? 'Inter' : lastMatch.rival} ${result} ${lastMatch.home ? lastMatch.rival : 'Inter'}` : 'sin resultado cargado todavía'}. Seguimos construyendo desde el trabajo colectivo.`,
+    mvp: `MVP de la jornada: ${mvpName || 'por decidir'}. El premio se gana compitiendo, ayudando al equipo y apareciendo cuando el partido pesa.`,
+    payment_reminder: `Recordatorio de cuotas. Total esperado ${formatMoney(paymentSummary.expected)}, cobrado ${formatMoney(paymentSummary.collected)} y pendiente ${formatMoney(paymentSummary.pendingAmount)}. Solo el admin actualiza pagos.`,
+    honours: `Historia del Inter de Verdun. Subcampeones 2023-2024, campeones de invierno y verano 2024-2025. Bicampeón Canyelles. De competir a dominar Canyelles.`,
+    player: `Presentación de jugador: ${player?.name || 'jugador del Inter'}, ${player?.position || 'plantilla'} con ${player?.goals || player?.stats?.goles || 0} goles, ${player?.assists || player?.stats?.asistencias || 0} asistencias y orgullo Inter.`,
+    captain_message: `${getClubMessage(`${state.clubMessageSeed}:captain`)} Inter de Verdun: intensidad, compromiso y cabeza hasta el final.`
+  };
+
+  return scripts[type] || scripts.match_preview;
+}
+
+function getInterTvSlides(type, options = {}) {
+  const match = options.match || getUpcomingMatch() || getLastFinishedMatch();
+  const player = options.player || getFeaturedPlayer();
+  const lastMatch = getLastFinishedMatch();
+  const mvpName = getLastMvpName(lastMatch?.id);
+  const display = match ? getMatchDisplay(match) : null;
+  const counts = getAttendanceCountsForNextMatch();
+
+  if (type === 'honours') {
+    return [
+      { kicker: 'Historia', title: 'Bicampeón Canyelles', body: 'Invierno y verano 2024-2025 con el escudo por delante.' },
+      { kicker: 'Palmarés', title: 'De competir a dominar', body: 'Subcampeón 23-24. Campeón de invierno y verano 24-25.' },
+      { kicker: 'Inter TV', title: 'EL INTER DE VERDUN', body: 'Celeste, blanco y dorado. Una historia que sigue creciendo.' }
+    ];
+  }
+
+  if (type === 'player') {
+    return [
+      { kicker: 'Jugador', title: player?.name || 'Plantilla Inter', body: player?.position || 'Siempre listo para competir.' },
+      { kicker: 'Temporada', title: `${player?.goals || player?.stats?.goles || 0}G · ${player?.assists || player?.stats?.asistencias || 0}A`, body: `${player?.mvp || player?.stats?.mvps || 0} MVP y compromiso de equipo.` },
+      { kicker: 'Inter TV', title: 'Carta del jugador', body: 'Orgullo de vestuario, intensidad y confianza.' }
+    ];
+  }
+
+  if (type === 'match_recap') {
+    const result = lastMatch ? getMatchDisplay(lastMatch).score : '-';
+    return [
+      { kicker: 'Postpartido', title: lastMatch ? `Inter ${result}` : 'Sin acta', body: lastMatch ? `Contra ${lastMatch.rival}. Resultado ya cargado en la app.` : 'Cuando publiques acta aparecerá aquí.' },
+      { kicker: 'MVP', title: mvpName || 'Por decidir', body: 'El equipo vota al jugador más determinante.' },
+      { kicker: 'Inter TV', title: 'Resumen listo', body: 'Goles, asistencias y tarjetas salen del acta.' }
+    ];
+  }
+
+  if (type === 'convocatoria') {
+    return [
+      { kicker: 'Convocatoria', title: match ? `vs ${match.rival}` : 'Próximo partido', body: counts ? `${counts.yes} voy · ${counts.maybe} duda · ${counts.pending} pendientes` : 'Confirma cuanto antes.' },
+      { kicker: 'Campo', title: match?.venue || 'Velòdrom F7', body: match ? `${formatDate(match.date)} · ${match.home ? 'Casa' : 'Fuera'}` : 'Fecha por confirmar.' },
+      { kicker: 'Mensaje', title: 'Compromiso', body: 'El capitán necesita saber con quién cuenta.' }
+    ];
+  }
+
+  return [
+    { kicker: 'Próximo partido', title: match ? `Inter vs ${match.rival}` : 'Inter TV', body: match ? `${formatDate(match.date)} · ${match.home ? 'Casa' : 'Fuera'} · ${match.venue || 'Velòdrom F7'}` : 'Cuando haya partido, saldrá aquí.' },
+    { kicker: 'Estado', title: display?.status || 'Preparación', body: 'Equipo corto, líneas juntas y cabeza en cada balón.' },
+    { kicker: 'Plan Inter', title: 'Competir juntos', body: getClubMessage(`${state.clubMessageSeed}:tv`) }
+  ];
+}
+
+function renderInterTvAuto(type = 'match_preview', options = {}) {
+  const config = INTER_TV_TYPES[type] || INTER_TV_TYPES.match_preview;
+  const asset = getLatestInterTvAsset(type, options);
+  const heygenUrl = asset?.heygen_url || options.heygenUrl || '';
+  const script = asset?.script || getInterTvScript(type, options);
+
+  if (heygenUrl) {
+    return `
+      <section class="inter-tv-card inter-tv-card--video" style="--accent-color:${config.accent}">
+        <div class="inter-tv-card__head">
+          <span>${escapeHtml(config.label)}</span>
+          <strong>${escapeHtml(asset?.title || config.title)}</strong>
+        </div>
+        <video src="${escapeHtml(heygenUrl)}" controls playsinline preload="metadata"></video>
+        <button type="button" class="btn btn-secondary" data-action="inter-tv-copy" data-script="${escapeHtml(script)}">Copiar guion</button>
+      </section>
+    `;
+  }
+
+  const slides = getInterTvSlides(type, options);
+  return `
+    <section class="inter-tv-card" style="--accent-color:${config.accent}; --slide-count:${slides.length}">
+      <div class="inter-tv-brand">
+        <img src="escudo.png" alt="Escudo Inter de Verdun" />
+        <div>
+          <span>${escapeHtml(config.label)}</span>
+          <strong>${escapeHtml(config.title)}</strong>
+        </div>
+      </div>
+      <div class="inter-tv-stage" aria-label="${escapeHtml(config.label)}">
+        ${slides.map((slide, index) => `
+          <article class="inter-tv-slide" style="--i:${index}">
+            <span>${escapeHtml(slide.kicker)}</span>
+            <h3>${escapeHtml(slide.title)}</h3>
+            <p>${escapeHtml(slide.body)}</p>
+          </article>
+        `).join('')}
+        <div class="inter-tv-progress" aria-hidden="true"></div>
+      </div>
+      <div class="inter-tv-actions">
+        <button type="button" class="btn btn-secondary" data-action="inter-tv-toggle">Pausar</button>
+        <button type="button" class="btn btn-secondary" data-action="inter-tv-voice" data-script="${escapeHtml(script)}">Voz</button>
+        <button type="button" class="btn btn-gold" data-action="inter-tv-copy" data-script="${escapeHtml(script)}">Copiar guion</button>
+      </div>
+    </section>
+  `;
+}
+
+function renderHomeInterTv(nextMatch) {
+  const container = $('homeInterTv');
+  if (!container) return;
+  container.innerHTML = renderInterTvAuto('match_preview', { match: nextMatch, compact: true });
+}
+
+function renderHomeFeaturedPlayer() {
+  const container = $('homeFeaturedPlayer');
+  if (!container) return;
+  const player = getFeaturedPlayer();
+  if (!player) {
+    container.innerHTML = '<p class="empty-state">Aún no hay jugador destacado.</p>';
+    return;
+  }
+  const achievements = getPlayerAchievements(player, getPlayerScoreRows());
+  container.innerHTML = `
+    <button type="button" class="featured-player" data-action="open-player" data-player-id="${player.id}">
+      <div class="squad-shirt"><span>${player.dorsal || '-'}</span></div>
+      <div>
+        <span>Jugador destacado</span>
+        <strong>${escapeHtml(player.name)}</strong>
+        <small>${player.goals || player.stats?.goles || 0}G · ${player.assists || player.stats?.asistencias || 0}A · ${player.mvp || player.stats?.mvps || 0}MVP</small>
+        ${achievements.length ? `<em>${escapeHtml(achievements[0])}</em>` : ''}
+      </div>
+    </button>
+  `;
+}
+
+function renderClubHonours() {
+  const container = $('clubHonours');
+  if (!container) return;
+  container.innerHTML = `
+    <section class="honours-showcase">
+      <div class="honours-showcase__hero">
+        <img src="escudo.png" alt="Escudo del Inter de Verdun" />
+        <div>
+          <span>Palmarés del Club</span>
+          <h3>De competir a dominar Canyelles.</h3>
+          <p>La vitrina celeste, blanca y dorada del Inter de Verdun.</p>
+        </div>
+      </div>
+      <div class="honours-grid">
+        ${CLUB_HONOURS.map((honour) => `
+          <article class="honour-card is-${escapeHtml(honour.type)}">
+            <span class="honour-card__icon">${honour.type === 'runner_up' ? '🥈' : '🏆'}</span>
+            <div>
+              <strong>${escapeHtml(honour.title)}</strong>
+              <small>${escapeHtml(honour.competition)} · ${escapeHtml(honour.season)}</small>
+              <p>${escapeHtml(honour.description)}</p>
+            </div>
+          </article>
+        `).join('')}
+      </div>
+      ${renderInterTvAuto('honours')}
+    </section>
+  `;
+}
+
+function renderPlayerMediaBlock(player) {
+  const media = state.playerMediaByPlayerId?.[String(player?.id || '')];
+  const bio = media?.bio || `${player?.name || 'Jugador'} forma parte de la identidad competitiva del Inter de Verdun.`;
+  return `
+    <section class="player-media-card">
+      <h4>Carta Inter TV</h4>
+      <p>${escapeHtml(bio)}</p>
+      ${media?.phrase ? `<blockquote>${escapeHtml(media.phrase)}</blockquote>` : ''}
+      ${renderInterTvAuto('player', { player, heygenUrl: media?.heygen_url || '' })}
+    </section>
+  `;
+}
+
 function getSessionUser() {
   const user = state.session?.user;
   if (!user) return null;
@@ -1832,6 +2394,8 @@ function renderHome() {
     renderHomeClubPulse(null);
     renderHomeAttendanceSummary(null);
     renderHomeLastMatch();
+    renderHomeInterTv(null);
+    renderHomeFeaturedPlayer();
     $('goConfirmBtn').textContent = 'Ir a Convocatoria';
     return;
   }
@@ -1849,6 +2413,8 @@ function renderHome() {
   renderHomeAttendanceSummary(nextMatch);
   if (nextMatch?.id) maybeLoadHomeAttendanceSummary(nextMatch.id);
   renderHomeLastMatch();
+  renderHomeInterTv(nextMatch);
+  renderHomeFeaturedPlayer();
 
   if ($('homeMatchCard')) $('homeMatchCard').innerHTML = renderMatchdayCard(nextMatch);
   $('nextMatchText').textContent = nextMatch ? `vs ${nextMatch.rival}` : 'Sin partido próximo';
@@ -1890,9 +2456,9 @@ function renderConvocatoria() {
   if (!uuidMatches.length) {
     $('matchSelector').innerHTML = '';
     $('attendanceList').innerHTML = '<li>No hay partidos con UUID de Supabase para Convocatoria.</li>';
-    $('countConfirmados').textContent = 'Confirmados: 0';
-    $('countPendientes').textContent = 'Pendientes: 0';
-    $('countBajas').textContent = 'Bajas: 0';
+    $('countConfirmados').textContent = 'Voy: 0';
+    $('countPendientes').textContent = 'Duda: 0 · Pend: 0';
+    $('countBajas').textContent = 'No voy: 0';
     return;
   }
 
@@ -1908,9 +2474,9 @@ function renderConvocatoria() {
 
   if (!isUuid(state.selectedMatchId)) {
     $('attendanceList').innerHTML = '<li>Este partido no tiene UUID de Supabase. Convocatoria solo usa public.attendance.</li>';
-    $('countConfirmados').textContent = 'Confirmados: 0';
-    $('countPendientes').textContent = 'Pendientes: 0';
-    $('countBajas').textContent = 'Bajas: 0';
+    $('countConfirmados').textContent = 'Voy: 0';
+    $('countPendientes').textContent = 'Duda: 0 · Pend: 0';
+    $('countBajas').textContent = 'No voy: 0';
 
     const debug = $('convocatoriaDebug');
     if (debug && isDebugUIEnabled()) {
@@ -1965,16 +2531,16 @@ function renderConvocatoria() {
       </div>
       ${accountHint}
       <div class="att-actions ${showActions ? '' : 'hidden'}">
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>Confirmar</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="yes" ${disabledAttr}>Voy</button>
         <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="maybe" ${disabledAttr}>Duda</button>
-        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>Baja</button>
+        <button type="button" data-action="att" data-player-id="${p.id}" data-user-id="${userId || ''}" data-status="no" ${disabledAttr}>No voy</button>
       </div>
     </li>`;
   }).join('');
 
-  $('countConfirmados').textContent = `Confirmados: ${confirmados}`;
+  $('countConfirmados').textContent = `Voy: ${confirmados}`;
   $('countPendientes').textContent = `Duda: ${duda} · Pend: ${pendientes}`;
-  $('countBajas').textContent = `Bajas: ${bajas}`;
+  $('countBajas').textContent = `No voy: ${bajas}`;
 
   const debug = $('convocatoriaDebug');
   if (debug) {
@@ -1995,14 +2561,53 @@ function renderConvocatoria() {
   }
 }
 
+function getCalendarFilters() {
+  return [
+    { id: 'all', label: 'Todos' },
+    { id: 'home', label: 'Casa' },
+    { id: 'away', label: 'Fuera' },
+    { id: 'upcoming', label: 'Próximos' },
+    { id: 'finished', label: 'Finalizados' }
+  ];
+}
+
+function matchPassesCalendarFilter(match, filter) {
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  const finished = homeGoals != null && awayGoals != null;
+  const future = new Date(match.date) >= new Date();
+  if (filter === 'home') return Boolean(match.home);
+  if (filter === 'away') return !match.home;
+  if (filter === 'upcoming') return future && !finished;
+  if (filter === 'finished') return finished;
+  return true;
+}
+
+function renderCalendarFilters() {
+  const container = $('calendarFilters');
+  if (!container) return;
+  const active = state.calendarFilter || 'all';
+  container.innerHTML = getCalendarFilters().map((filter) => `
+    <button type="button" class="${active === filter.id ? 'is-active' : ''}" data-action="calendar-filter" data-filter="${filter.id}">
+      ${escapeHtml(filter.label)}
+    </button>
+  `).join('');
+}
+
 function renderCalendario() {
   const matches = getMatches();
+  renderCalendarFilters();
   if (!matches.length) {
     $('calendarList').innerHTML = '<li>No hay partidos cargados todavía.</li>';
     return;
   }
 
-  $('calendarList').innerHTML = matches.map((m) => {
+  const filtered = matches.filter((match) => matchPassesCalendarFilter(match, state.calendarFilter || 'all'));
+  if (!filtered.length) {
+    $('calendarList').innerHTML = '<li class="empty-state">No hay partidos para este filtro.</li>';
+    return;
+  }
+
+  $('calendarList').innerHTML = filtered.map((m) => {
     const display = getMatchDisplay(m);
     return `
       <li class="calendar-match ${display.hasResult ? 'is-final' : 'is-open'}">
@@ -2062,6 +2667,7 @@ function renderClub() {
         ].map(([k, v]) => `<div class="stat-item"><small>${k}</small><strong>${v}</strong></div>`).join('')}
       </div>
     </section>`;
+  renderClubHonours();
 
   const players = getPlayers().sort((a, b) => (a.dorsal || 999) - (b.dorsal || 999));
   const scoreRows = getPlayerScoreRows(players);
@@ -2102,6 +2708,7 @@ async function loadMvpData(selectedMatchId) {
   state.mvp.votesByPlayerForSelected = {};
   state.mvp.votesByMatch = {};
   state.mvp.globalTotals = {};
+  state.mvp.userVotesByMatch = {};
 
   if (!supabaseClient) return;
 
@@ -2123,6 +2730,9 @@ async function loadMvpData(selectedMatchId) {
       const matchId = String(row.match_id);
       if (!state.mvp.votesByMatch[matchId]) state.mvp.votesByMatch[matchId] = {};
       state.mvp.votesByMatch[matchId][playerId] = (state.mvp.votesByMatch[matchId][playerId] || 0) + 1;
+      if (row.voter_user_id === getSessionUser()?.id) {
+        state.mvp.userVotesByMatch[matchId] = playerId;
+      }
     }
     if (state.mvp.selectedMatchId && row.match_id === state.mvp.selectedMatchId) {
       state.mvp.votesByPlayerForSelected[playerId] = (state.mvp.votesByPlayerForSelected[playerId] || 0) + 1;
@@ -2230,6 +2840,20 @@ function renderMvp() {
     .sort((a, b) => b.total - a.total);
 
   const leaderTotal = Math.max(1, ...ranking.map((p) => Number(p.total || 0)));
+  const selectedVotePlayerId = state.mvp.userVotesByMatch?.[state.mvp.selectedMatchId];
+  const selectedVotePlayer = players.find((p) => p.id === selectedVotePlayerId);
+  const lastMatch = getLastFinishedMatch();
+  const lastMvp = getMatchMvpLeaders(lastMatch?.id).slice(0, 3);
+  const lastMvpCard = `
+    <section class="mvp-last-card">
+      <span>MVP último partido</span>
+      <strong>${lastMvp.length ? escapeHtml(lastMvp.map((item) => item.name).join(', ')) : 'Aún sin votos'}</strong>
+      <small>${lastMatch ? escapeHtml(formatMatchShort(lastMatch)) : 'Cuando haya acta aparecerá aquí.'}</small>
+    </section>
+  `;
+  if ($('voteMessage')) {
+    $('voteMessage').textContent = selectedVotePlayer ? `Ya has votado a ${selectedVotePlayer.name} en este partido.` : '';
+  }
   const podium = ranking.slice(0, 3).map((p, index) => `
     <article class="mvp-podium__card is-${index + 1}">
       <span class="mvp-podium__place">${index + 1}</span>
@@ -2239,6 +2863,7 @@ function renderMvp() {
   `).join('');
 
   $('mvpRankingList').innerHTML = `
+    ${lastMvpCard}
     <section class="mvp-podium">${podium || '<p class="muted">Sin votos todavía.</p>'}</section>
     <section class="mvp-rank-list">
       ${ranking.map((p, index) => `
@@ -2471,6 +3096,194 @@ function renderLineupEditor() {
   if (tacticPanel) tacticPanel.innerHTML = renderTacticalInsight(formation, { title: 'Consejos/tácticas' });
 }
 
+function renderAdminDashboardCards() {
+  const schemaBadge = state.platformSchemaStatus === 'missing'
+    ? 'SQL pendiente'
+    : (state.platformSchemaStatus === 'ready' ? 'Listo' : 'Fallback local');
+  const cards = [
+    ['Acta del partido', 'Resultado, goles, asistencias y tarjetas desde una sola publicación.', 'Operativo'],
+    ['Alineación por partido', 'Formaciones F7, pizarra táctica y consejos automáticos.', 'Operativo'],
+    ['Imagen convocatoria', 'Cartel 1080x1350 con escudo, rival, fecha y alineación.', 'Operativo'],
+    ['Inter TV', 'Guiones, piezas automáticas y URLs HeyGen opcionales.', schemaBadge],
+    ['Inter AI', 'Plantillas locales listas para futura Edge Function segura.', 'Local'],
+    ['Pagos / Cuotas', 'Cuota editable, pago único o dividido y control admin.', state.payments.status === 'ready' ? 'Listo' : 'SQL pendiente']
+  ];
+  return `
+    <section class="admin-command-card card">
+      <div>
+        <span>Panel de gestión</span>
+        <h2>Centro operativo Inter</h2>
+        <p>Todo lo importante sigue en módulos separados para no mezclar actas, alineaciones, pagos y contenido.</p>
+      </div>
+      <div class="admin-command-grid">
+        ${cards.map(([title, text, status]) => `
+          <article>
+            <strong>${escapeHtml(title)}</strong>
+            <p>${escapeHtml(text)}</p>
+            <span>${escapeHtml(status)}</span>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderPaymentsAdminSection() {
+  if (state.payments.status === 'idle') loadPaymentsData();
+  const settings = getPaymentSettings();
+  const summary = computePaymentsSummary();
+  const split = settings.payment_mode === 'split_2';
+  const players = getPlayers();
+
+  if (state.payments.status === 'missing') {
+    return `
+      <section class="admin-block card card--accent payments-admin" style="--accent-color:#ffb36b">
+        <h3 class="section-title">Pagos / Cuotas</h3>
+        <p class="muted">Falta ejecutar la migración <strong>supabase_platform_modules_schema.sql</strong> en Supabase para activar pagos.</p>
+      </section>
+    `;
+  }
+
+  return `
+    <section class="admin-block card card--accent payments-admin" style="--accent-color:#ffb36b">
+      <div class="admin-section-head">
+        <div>
+          <h3 class="section-title">Pagos / Cuotas</h3>
+          <p class="muted">Solo admin. Los jugadores no pueden marcar pagos.</p>
+        </div>
+        <span class="acta-pill">${escapeHtml(PAYMENT_SEASON)}</span>
+      </div>
+      ${state.payments.status === 'loading' ? '<p class="muted">Cargando pagos...</p>' : ''}
+      ${state.payments.status === 'error' ? `<p class="error">${escapeHtml(state.payments.error)}</p>` : ''}
+      <div class="payment-settings-grid">
+        <label><span>Importe total</span><input id="paymentTotalAmount" class="input" type="number" min="0" step="0.01" value="${escapeHtml(settings.total_amount)}" /></label>
+        <label><span>Modalidad</span><select id="paymentMode" class="input">
+          <option value="single" ${!split ? 'selected' : ''}>Pago único</option>
+          <option value="split_2" ${split ? 'selected' : ''}>2 pagos</option>
+        </select></label>
+        <label><span>Pago 1</span><input id="paymentFirstAmount" class="input" type="number" min="0" step="0.01" value="${escapeHtml(settings.first_payment_amount)}" /></label>
+        <label><span>Pago 2</span><input id="paymentSecondAmount" class="input" type="number" min="0" step="0.01" value="${escapeHtml(settings.second_payment_amount)}" /></label>
+        <label><span>Fecha límite 1</span><input id="paymentFirstDueDate" class="input" type="date" value="${escapeHtml(settings.first_due_date || '')}" /></label>
+        <label><span>Fecha límite 2</span><input id="paymentSecondDueDate" class="input" type="date" value="${escapeHtml(settings.second_due_date || '')}" /></label>
+      </div>
+      <button type="button" class="btn btn-gold" data-action="payment-save-settings">Guardar configuración</button>
+      <div class="payment-summary-grid">
+        <article><small>Total esperado</small><strong>${formatMoney(summary.expected)}</strong></article>
+        <article><small>Cobrado</small><strong>${formatMoney(summary.collected)}</strong></article>
+        <article><small>Pendiente</small><strong>${formatMoney(summary.pendingAmount)}</strong></article>
+        <article><small>Pagados</small><strong>${summary.paid}</strong></article>
+      </div>
+      <div class="payment-player-list">
+        ${players.map((player) => {
+          const row = getPaymentRowForPlayer(player.id);
+          const status = getPaymentStatus(row, settings);
+          return `
+            <article class="payment-player-row">
+              <div>
+                <strong>${escapeHtml(player.name)}</strong>
+                <small>#${player.dorsal || '-'} · ${escapeHtml(player.position || 'N/D')}</small>
+              </div>
+              <span class="payment-chip is-${status.key}">${escapeHtml(status.label)}</span>
+              <div class="payment-actions">
+                ${split
+                  ? `<button type="button" data-action="payment-set" data-player-id="${player.id}" data-payment-action="first">${row?.first_paid ? 'Quitar P1' : 'Pago 1'}</button>
+                     <button type="button" data-action="payment-set" data-player-id="${player.id}" data-payment-action="second">${row?.second_paid ? 'Quitar P2' : 'Pago 2'}</button>`
+                  : `<button type="button" data-action="payment-set" data-player-id="${player.id}" data-payment-action="paid">Pagado</button>`}
+                <button type="button" data-action="payment-set" data-player-id="${player.id}" data-payment-action="pending">Pendiente</button>
+                <button type="button" data-action="payment-set" data-player-id="${player.id}" data-payment-action="exempt">Exento</button>
+              </div>
+            </article>
+          `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminInterTvSection() {
+  const typeOptions = Object.entries(INTER_TV_TYPES).map(([id, cfg]) => `<option value="${id}">${escapeHtml(cfg.label)}</option>`).join('');
+  const defaultType = 'match_preview';
+  const script = getInterTvScript(defaultType, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
+  return `
+    <section class="admin-block card card--accent admin-tv" style="--accent-color:var(--dorado)">
+      <div class="admin-section-head">
+        <div>
+          <h3 class="section-title">Inter TV</h3>
+          <p class="muted">Genera pieza gratuita automática o pega una URL HeyGen si más adelante la tienes.</p>
+        </div>
+        <span class="acta-pill">${state.platformSchemaStatus === 'ready' ? 'HeyGen opcional' : 'Local'}</span>
+      </div>
+      <label for="adminTvType">Tipo de pieza</label>
+      <select id="adminTvType" class="input">${typeOptions}</select>
+      <label for="adminTvHeygenUrl">URL HeyGen opcional</label>
+      <input id="adminTvHeygenUrl" class="input" type="url" placeholder="https://..." />
+      <label for="adminTvScript">Guion</label>
+      <textarea id="adminTvScript" class="input" rows="5">${escapeHtml(script)}</textarea>
+      <div class="admin-inline-actions">
+        <button type="button" class="btn btn-secondary" data-action="admin-generate-script">Generar guion</button>
+        <button type="button" class="btn btn-gold" data-action="admin-copy-script">Copiar guion</button>
+        <button type="button" class="btn btn-primary" data-action="admin-save-tv-asset">Guardar pieza</button>
+      </div>
+      <div id="adminTvPreview">${renderInterTvAuto(defaultType, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() })}</div>
+      ${state.platformSchemaStatus === 'missing' ? '<p class="muted">Para guardar URLs HeyGen ejecuta la migración de módulos. El fallback Inter TV Auto funciona ya.</p>' : ''}
+    </section>
+  `;
+}
+
+async function saveInterTvAssetFromAdmin() {
+  if (!isAdmin()) return showToast('Solo admin', 'error');
+  if (!supabaseClient) return showToast('Supabase no disponible', 'error');
+  const type = $('adminTvType')?.value || 'match_preview';
+  const script = $('adminTvScript')?.value?.trim() || getInterTvScript(type);
+  const heygenUrl = $('adminTvHeygenUrl')?.value?.trim() || null;
+  const config = INTER_TV_TYPES[type] || INTER_TV_TYPES.match_preview;
+  try {
+    const { error } = await supabaseClient.from('inter_tv_assets').insert({
+      type,
+      title: config.title,
+      script,
+      heygen_url: heygenUrl,
+      auto_enabled: !heygenUrl,
+      created_by: getSessionUser()?.id || null
+    });
+    if (error) throw error;
+    await hydrateSessionData();
+    renderAll();
+    showToast('Pieza Inter TV guardada', 'success');
+  } catch (error) {
+    console.error('[inter-tv] save error', error);
+    showToast(isMissingOptionalSchemaError(error) ? 'Ejecuta el SQL de módulos primero' : (error.message || 'No se pudo guardar Inter TV'), 'error');
+  }
+}
+
+function renderAdminAiSection() {
+  return `
+    <section class="admin-block card card--accent admin-ai" style="--accent-color:#7f8cff">
+      <div class="admin-section-head">
+        <div>
+          <h3 class="section-title">Inter AI</h3>
+          <p class="muted">Preparado para Hugging Face mediante Edge Function. Ahora usa plantillas locales seguras.</p>
+        </div>
+        <span class="acta-pill">Sin token público</span>
+      </div>
+      <select id="adminAiType" class="input">
+        ${Object.entries(INTER_TV_TYPES).map(([id, cfg]) => `<option value="${id}">${escapeHtml(cfg.scriptLabel)}</option>`).join('')}
+      </select>
+      <button type="button" class="btn btn-secondary" data-action="admin-generate-ai">Generar texto local</button>
+      <textarea id="adminAiOutput" class="input" rows="5" placeholder="El texto generado aparecerá aquí."></textarea>
+      <button type="button" class="btn btn-gold" data-action="admin-copy-script">Copiar texto</button>
+    </section>
+  `;
+}
+
+function renderAdminAiOutput() {
+  const type = $('adminAiType')?.value || 'match_preview';
+  const output = getInterTvScript(type, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
+  if ($('adminAiOutput')) $('adminAiOutput').value = output;
+  state.interAi.text = output;
+  showToast('Texto local generado', 'success');
+}
+
 function renderAdmin() {
   const adminTab = document.querySelector('.admin-tab');
   const adminView = document.querySelector('[data-view="admin"]');
@@ -2492,6 +3305,7 @@ function renderAdmin() {
     const matchOptions = matches.map((m) => `<option value="${m.id}" ${m.id === state.actaEditor.selectedMatchId ? 'selected' : ''}>${formatMatchLabel(m)}</option>`).join('');
 
     adminView.innerHTML = `
+      ${renderAdminDashboardCards()}
       <section id="adminActaBlock" class="admin-block admin-acta card card--accent" style="--accent-color: var(--dorado)">
         <div class="admin-section-head">
           <div>
@@ -2547,8 +3361,15 @@ function renderAdmin() {
         <h3 class="section-title">Imagen convocatoria</h3>
         <p class="muted">Formato 1080x1350 con escudo del club, rival, fecha, convocados y alineación si está publicada.</p>
         <select id="adminImageMatchSelector" class="input">${getMatches().filter((m) => isUuid(m.id)).map((m) => `<option value="${m.id}">${formatMatchLabel(m)}</option>`).join('')}</select>
-        <button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
+        <div class="admin-inline-actions">
+          <button id="adminImageBtn" class="btn btn-gold">Generar imagen convocatoria</button>
+          <button id="adminImageCaptionBtn" type="button" class="btn btn-secondary">Copiar texto Instagram</button>
+        </div>
       </section>
+
+      ${renderAdminInterTvSection()}
+      ${renderAdminAiSection()}
+      ${renderPaymentsAdminSection()}
     `;
 
     if (actaMatch && state.actaEditor.loadedMatchId !== actaMatch.id) {
@@ -2617,6 +3438,22 @@ function renderAdmin() {
       const id = $('adminImageMatchSelector')?.value || state.selectedMatchId || getUpcomingMatch?.()?.id;
       if (!id) return showToastOrAlert('No hay partido seleccionado ni próximo partido disponible', 'error');
       generateInstagramPoster(id);
+    });
+    $('adminImageCaptionBtn')?.addEventListener('click', async () => {
+      const id = $('adminImageMatchSelector')?.value || state.selectedMatchId || getUpcomingMatch?.()?.id;
+      const caption = buildInstagramCaption(id);
+      try {
+        await navigator.clipboard.writeText(caption);
+        showToast('Texto de Instagram copiado', 'success');
+      } catch {
+        showToast('No se pudo copiar el texto', 'error');
+      }
+    });
+    $('adminTvType')?.addEventListener('change', (e) => {
+      const type = e.target.value || 'match_preview';
+      const script = getInterTvScript(type, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
+      if ($('adminTvScript')) $('adminTvScript').value = script;
+      if ($('adminTvPreview')) $('adminTvPreview').innerHTML = renderInterTvAuto(type, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
     });
 
     renderLineupEditor();
@@ -2794,6 +3631,25 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.lineTo(x, y + r);
   ctx.arcTo(x, y, x + r, y, r);
   ctx.closePath();
+}
+
+function buildInstagramCaption(matchId) {
+  const match = getMatches().find((m) => m.id === matchId) || getUpcomingMatch();
+  if (!match) return 'EL INTER DE VERDUN. Próxima convocatoria en camino. #InterDeVerdun';
+  const counts = state.homeAttendanceSummary.matchId === match.id ? state.homeAttendanceSummary.counts : null;
+  const formation = getFormationForMatch(match.id);
+  const lines = [
+    'CONVOCATORIA · EL INTER DE VERDUN',
+    `Rival: ${match.rival || 'Rival por confirmar'}`,
+    `Fecha: ${formatDate(match.date)}`,
+    `Campo: ${match.venue || 'Velòdrom F7'} · ${match.home ? 'Casa' : 'Fuera'}`,
+    formation ? `Plan: ${formation}` : 'Plan: alineación por confirmar',
+    counts ? `Asistencia: ${counts.yes} voy · ${counts.maybe} duda · ${counts.no} no voy · ${counts.pending} pendientes` : '',
+    '',
+    'Celeste, blanco y dorado.',
+    '#InterDeVerdun #Futbol7 #Canyelles'
+  ];
+  return lines.filter(Boolean).join('\n');
 }
 
 async function generateInstagramPoster(matchId) {
@@ -3160,9 +4016,154 @@ function openPlayerModal(playerId) {
         ? `<div>${achievements.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>`
         : '<p class="muted">Aún no hay logros automáticos con los datos actuales.</p>'}
     </section>
+    ${renderPlayerMediaBlock({ ...player, ...row })}
   `;
 
   $('playerModal')?.showModal();
+}
+
+function getMatchAttendanceCounts(matchId) {
+  if (state.convocatoria.matchId !== matchId) return null;
+  const counts = { yes: 0, maybe: 0, no: 0, pending: 0 };
+  getPlayers().forEach((player) => {
+    const status = getConvocatoriaStatusForPlayer(player.id);
+    counts[status] = (counts[status] || 0) + 1;
+  });
+  return counts;
+}
+
+function getMatchModalTabs() {
+  return [
+    { id: 'resumen', label: 'Resumen' },
+    { id: 'convocatoria', label: 'Convocatoria' },
+    { id: 'alineacion', label: 'Alineación' },
+    { id: 'plan', label: 'Plan táctico' },
+    { id: 'estadisticas', label: 'Stats' },
+    { id: 'mvp', label: 'MVP' },
+    { id: 'intertv', label: 'Inter TV' }
+  ];
+}
+
+function renderMatchModalTabs(match) {
+  const tabs = $('modalTabs');
+  if (!tabs) return;
+  const active = state.matchModal.tab || 'resumen';
+  tabs.innerHTML = getMatchModalTabs().map((tab) => `
+    <button type="button" class="${active === tab.id ? 'is-active' : ''}" data-action="match-tab" data-tab="${tab.id}" data-match-id="${match.id}">
+      ${escapeHtml(tab.label)}
+    </button>
+  `).join('');
+}
+
+function renderMatchModalContent(match) {
+  if (!match) return;
+  const [homeGoals, awayGoals] = getMatchResultTuple(match);
+  const hasResult = homeGoals != null && awayGoals != null;
+  const eventSummary = getMatchEventSummary(match);
+  const mvpLeaders = getMatchMvpLeaders(match.id);
+  const recentForm = getRecentInterForm(5);
+  const textualResult = match.result_text || match.resultText || match.resultado_texto || '';
+  const counts = getMatchAttendanceCounts(match.id);
+  const formation = getFormationForMatch(match.id);
+  const tab = state.matchModal.tab || 'resumen';
+  const lineupCard = $('lineupCardModal');
+
+  renderMatchModalTabs(match);
+  if (lineupCard) lineupCard.classList.toggle('hidden', tab !== 'alineacion');
+
+  if (tab === 'convocatoria') {
+    $('modalSummary').innerHTML = `
+      <section class="modal-tab-panel">
+        <h4>Convocatoria</h4>
+        ${counts
+          ? `<div class="modal-kpi-grid">
+              <article><small>Voy</small><strong>${counts.yes}</strong></article>
+              <article><small>Duda</small><strong>${counts.maybe}</strong></article>
+              <article><small>No voy</small><strong>${counts.no}</strong></article>
+              <article><small>Pend.</small><strong>${counts.pending}</strong></article>
+            </div>`
+          : '<p class="muted">Abre la convocatoria para cargar el resumen de este partido.</p>'}
+        <button type="button" class="btn btn-secondary" id="modalGoConvBtn">Ir a convocatoria</button>
+      </section>
+    `;
+    $('modalGoConvBtn')?.addEventListener('click', () => {
+      state.selectedMatchId = match.id;
+      $('matchModal')?.close();
+      window.location.hash = '#convocatoria';
+      renderConvocatoria();
+      route();
+    });
+    return;
+  }
+
+  if (tab === 'alineacion') {
+    $('modalSummary').innerHTML = `
+      <section class="modal-tab-panel">
+        <h4>Alineación publicada</h4>
+        <p class="muted">Vista táctica del partido. El admin puede editarla desde el botón inferior.</p>
+      </section>
+    `;
+    return;
+  }
+
+  if (tab === 'plan') {
+    $('modalSummary').innerHTML = renderTacticalInsight(formation, { title: 'Plan táctico del partido' });
+    return;
+  }
+
+  if (tab === 'estadisticas') {
+    $('modalSummary').innerHTML = `
+      <section class="modal-tab-panel">
+        <h4>Estadísticas del acta</h4>
+        <div class="modal-kpi-grid">
+          <article><small>Goles Inter</small><strong>${eventSummary.goals.length}</strong></article>
+          <article><small>Asistencias</small><strong>${eventSummary.assists.length}</strong></article>
+          <article><small>Tarjetas</small><strong>${eventSummary.cards.length}</strong></article>
+          <article><small>Estado</small><strong>${hasResult ? 'Final' : 'Sin acta'}</strong></article>
+        </div>
+        ${eventSummary.goals.length ? `<ul class="modal-event-list">${eventSummary.goals.map((goal) => `<li>${escapeHtml(goal)}</li>`).join('')}</ul>` : '<p class="muted">Sin eventos de acta todavía.</p>'}
+      </section>
+    `;
+    return;
+  }
+
+  if (tab === 'mvp') {
+    $('modalSummary').innerHTML = `
+      <section class="modal-tab-panel">
+        <h4>MVP del partido</h4>
+        ${mvpLeaders.length
+          ? `<div class="modal-mvp-list">${mvpLeaders.map((item, index) => `<span>${index + 1}. ${escapeHtml(item.name)} · ${item.total}</span>`).join('')}</div>`
+          : '<p class="muted">Aún no hay votos MVP para este partido.</p>'}
+      </section>
+    `;
+    return;
+  }
+
+  if (tab === 'intertv') {
+    $('modalSummary').innerHTML = renderInterTvAuto(hasResult ? 'match_recap' : 'match_preview', { match });
+    return;
+  }
+
+  $('modalSummary').innerHTML = `
+    <section class="match-compare">
+      <article>
+        <small>Inter</small>
+        <strong>${hasResult ? (match.home ? homeGoals : awayGoals) : '-'}</strong>
+        <span>${recentForm.length ? recentForm.map((item) => `<i class="form-dot mini ${item === 'G' ? 'is-win' : (item === 'E' ? 'is-draw' : 'is-loss')}">${item}</i>`).join('') : 'Sin racha'}</span>
+      </article>
+      <article>
+        <small>${escapeHtml(match.rival || 'Rival')}</small>
+        <strong>${hasResult ? (match.home ? awayGoals : homeGoals) : '-'}</strong>
+        <span>${escapeHtml(match.home ? 'Inter local' : 'Inter visitante')}</span>
+      </article>
+    </section>
+    <p><strong>Localía:</strong> ${match.home ? 'Casa' : 'Fuera'} · <strong>Campo:</strong> ${escapeHtml(match.venue || 'Velòdrom F7')}</p>
+    ${textualResult ? `<p><strong>Resumen:</strong> ${escapeHtml(textualResult)}</p>` : ''}
+    ${eventSummary.goals.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${eventSummary.goals.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
+    ${eventSummary.assists.length ? `<p><strong>Asistencias:</strong> ${escapeHtml(eventSummary.assists.join(', '))}</p>` : ''}
+    ${mvpLeaders.length ? `<p><strong>MVP:</strong> ${escapeHtml(mvpLeaders.map((item) => item.name).join(', '))}</p>` : ''}
+    ${eventSummary.cards.length ? `<p><strong>Tarjetas:</strong> ${escapeHtml(eventSummary.cards.join(', '))}</p>` : ''}
+  `;
 }
 
 function openMatchModal(matchId) {
@@ -3175,11 +4176,9 @@ function openMatchModal(matchId) {
   const jornada = m.jornada || m.matchday || m.round || '';
   const localTeam = m.home ? 'Inter F7' : (m.rival || 'Rival');
   const awayTeam = m.home ? (m.rival || 'Rival') : 'Inter F7';
-  const eventSummary = getMatchEventSummary(m);
-  const mvpLeaders = getMatchMvpLeaders(m.id);
-  const recentForm = getRecentInterForm(5);
-  const textualResult = m.result_text || m.resultText || m.resultado_texto || '';
   const resultLabel = hasResult ? `${homeGoals} - ${awayGoals}` : '-';
+  const sameModal = state.matchModal.matchId === m.id;
+  state.matchModal = { matchId: m.id, tab: sameModal ? (state.matchModal.tab || 'resumen') : 'resumen' };
 
   $('modalHeader').innerHTML = `
     <p class="match-modal-meta-top">${jornada ? `<span class="badge">${escapeHtml(jornada)}</span>` : ''}<span>${escapeHtml(formatDate(m.date))}</span></p>
@@ -3198,28 +4197,13 @@ function openMatchModal(matchId) {
     </div>
   `;
 
-  $('modalSummary').innerHTML = `
-    <section class="match-compare">
-      <article>
-        <small>Inter</small>
-        <strong>${hasResult ? (m.home ? homeGoals : awayGoals) : '-'}</strong>
-        <span>${recentForm.length ? recentForm.map((item) => `<i class="form-dot mini ${item === 'G' ? 'is-win' : (item === 'E' ? 'is-draw' : 'is-loss')}">${item}</i>`).join('') : 'Sin racha'}</span>
-      </article>
-      <article>
-        <small>${escapeHtml(m.rival || 'Rival')}</small>
-        <strong>${hasResult ? (m.home ? awayGoals : homeGoals) : '-'}</strong>
-        <span>${escapeHtml(m.home ? 'Inter local' : 'Inter visitante')}</span>
-      </article>
-    </section>
-    <p><strong>Localía:</strong> ${m.home ? 'Casa' : 'Fuera'} · <strong>Campo:</strong> ${escapeHtml(m.venue || 'Velòdrom F7')}</p>
-    ${textualResult ? `<p><strong>Resumen:</strong> ${escapeHtml(textualResult)}</p>` : ''}
-    ${eventSummary.goals.length ? `<div class="inter-scorers"><h4>Goles del Inter</h4><ul>${eventSummary.goals.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul></div>` : ''}
-    ${eventSummary.assists.length ? `<p><strong>Asistencias:</strong> ${escapeHtml(eventSummary.assists.join(', '))}</p>` : ''}
-    ${mvpLeaders.length ? `<p><strong>MVP:</strong> ${escapeHtml(mvpLeaders.map((item) => item.name).join(', '))}</p>` : ''}
-    ${eventSummary.cards.length ? `<p><strong>Tarjetas:</strong> ${escapeHtml(eventSummary.cards.join(', '))}</p>` : ''}
-  `;
-
   renderLineupForMatch('lineupFieldModal', 'lineupModalMessage', m.id);
+  renderMatchModalContent(m);
+  if (isUuid(m.id)) {
+    loadConvocatoriaData(m.id).then(() => {
+      if (state.matchModal.matchId === m.id && $('matchModal')?.open) renderMatchModalContent(m);
+    });
+  }
 
   const adminZone = $('modalAdminEdit');
   const adminMode = isAdmin();
@@ -3397,9 +4381,54 @@ function bindEvents() {
       return;
     }
 
+    if (btn.dataset.action === 'calendar-filter') {
+      state.calendarFilter = btn.dataset.filter || 'all';
+      renderCalendario();
+      return;
+    }
+
+    if (btn.dataset.action === 'match-tab') {
+      state.matchModal.matchId = btn.dataset.matchId || state.matchModal.matchId;
+      state.matchModal.tab = btn.dataset.tab || 'resumen';
+      const match = getMatches().find((item) => item.id === state.matchModal.matchId);
+      if (match) renderMatchModalContent(match);
+      return;
+    }
+
     if (btn.dataset.action === 'open-official') {
       const url = btn.dataset.url || OFFICIAL_LINKS.standings;
       window.open(url, '_blank', 'noopener');
+      return;
+    }
+
+    if (btn.dataset.action === 'inter-tv-toggle') {
+      const card = btn.closest('.inter-tv-card');
+      card?.classList.toggle('is-paused');
+      btn.textContent = card?.classList.contains('is-paused') ? 'Reproducir' : 'Pausar';
+      return;
+    }
+
+    if (btn.dataset.action === 'inter-tv-copy' || btn.dataset.action === 'admin-copy-script') {
+      const scopedTextarea = btn.closest('.admin-ai') ? $('adminAiOutput') : $('adminTvScript');
+      const text = btn.dataset.script || scopedTextarea?.value || '';
+      if (!text) return showToast('No hay guion para copiar', 'error');
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast('Guion copiado', 'success');
+      } catch {
+        showToast('No se pudo copiar', 'error');
+      }
+      return;
+    }
+
+    if (btn.dataset.action === 'inter-tv-voice') {
+      const text = btn.dataset.script || '';
+      if (!('speechSynthesis' in window)) return showToast('Voz no disponible en este dispositivo', 'error');
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-ES';
+      window.speechSynthesis.speak(utterance);
+      showToast('Narrando Inter TV', 'success');
       return;
     }
 
@@ -3420,6 +4449,35 @@ function bindEvents() {
         state.lineupEditor.selectedSlot = FORMATIONS[nextFormation].slots[0];
       }
       renderLineupEditor();
+      return;
+    }
+
+    if (btn.dataset.action === 'payment-save-settings') {
+      await savePaymentSettings();
+      return;
+    }
+
+    if (btn.dataset.action === 'payment-set') {
+      await updatePlayerPayment(btn.dataset.playerId, btn.dataset.paymentAction);
+      return;
+    }
+
+    if (btn.dataset.action === 'admin-generate-script') {
+      const type = $('adminTvType')?.value || 'match_preview';
+      const script = getInterTvScript(type, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
+      if ($('adminTvScript')) $('adminTvScript').value = script;
+      if ($('adminTvPreview')) $('adminTvPreview').innerHTML = renderInterTvAuto(type, { match: getUpcomingMatch() || getLastFinishedMatch(), player: getFeaturedPlayer() });
+      showToast('Guion generado', 'success');
+      return;
+    }
+
+    if (btn.dataset.action === 'admin-save-tv-asset') {
+      await saveInterTvAssetFromAdmin();
+      return;
+    }
+
+    if (btn.dataset.action === 'admin-generate-ai') {
+      renderAdminAiOutput();
       return;
     }
 
