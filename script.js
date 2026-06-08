@@ -4291,7 +4291,6 @@ async function syncSession() {
 }
 
 function bindEvents() {
-  $('signupBtn')?.classList.toggle('hidden', !isDebugUIEnabled());
   $('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     $('loginError').textContent = '';
@@ -4314,23 +4313,6 @@ function bindEvents() {
     }
 
     await syncSession();
-  });
-
-  $('signupBtn')?.addEventListener('click', async () => {
-    $('loginError').textContent = '';
-    const creds = buildAuthCredentials();
-    if (!creds.email || !creds.password) {
-      $('loginError').textContent = 'Indica nombre/email y contraseña.';
-      return;
-    }
-
-    const { error } = await supabaseClient.auth.signUp(creds);
-    if (error) {
-      $('loginError').textContent = error.message || 'No se pudo crear la cuenta.';
-      return;
-    }
-
-    showToast('Cuenta creada. Revisa tu email si hay confirmación activa.');
   });
 
   $('logoutBtn').addEventListener('click', async () => {

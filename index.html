@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EL INTER DE VERDUN</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=14" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="escudo.png" />
 </head>
@@ -19,8 +19,7 @@
       <label for="password">Contraseña</label>
       <input id="password" class="input" type="password" required autocomplete="current-password" />
       <button id="loginSubmitBtn" type="submit" class="btn btn-primary">Entrar</button>
-      <button id="signupBtn" type="button" class="ghost hidden">Crear cuenta (test admin)</button>
-      <small class="muted">Usa tu cuenta de Supabase Auth.</small>
+      <small class="muted login-note">Acceso privado para jugadores y staff.</small>
       <p id="loginError" class="error"></p>
     </form>
   </div>
@@ -214,7 +213,7 @@
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="script.js"></script>
+  <script src="script.js?v=14"></script>
   <script>
     if ('serviceWorker' in navigator) {
       let swRefreshTriggered = false;
