@@ -1,9 +1,9 @@
-const CACHE_NAME = 'inter-app-cache-v14';
+const CACHE_NAME = 'inter-app-cache-v15';
 const APP_ASSETS = [
   './',
   'index.html',
-  'style.css?v=14',
-  'script.js?v=14',
+  'style.css?v=15',
+  'script.js?v=15',
   'data.json',
   'manifest.json',
   'escudo.png',
